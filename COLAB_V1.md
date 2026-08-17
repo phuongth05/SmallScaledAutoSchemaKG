@@ -29,10 +29,10 @@ The notebook performs these stages:
 6. exports CSV and GraphML;
 7. writes a machine-readable run summary.
 
-The install cell removes Colab's preinstalled `torchaudio` and `torchvision`
-wheels after installing vLLM. They are not used by this text-only workflow and
-can otherwise remain compiled for a different CUDA version than the PyTorch
-version selected by vLLM.
+The install cell removes Colab's preinstalled `torchaudio` after installing
+vLLM, then reinstalls `torchvision` from the CUDA backend selected for PyTorch.
+Audio is not used by this workflow, while Qwen3.5 architecture inspection still
+imports TorchVision even when the server uses `--language-model-only`.
 
 ### Recover an already-running Colab session
 
@@ -41,6 +41,7 @@ versions, run this once and then rerun the model-server cell:
 
 ```python
 !pip uninstall -y torchaudio torchvision
+!uv pip install --system torchvision --torch-backend=auto
 ```
 
 ## Run from a Linux GPU machine
