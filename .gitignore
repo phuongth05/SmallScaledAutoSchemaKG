@@ -19,3 +19,7 @@ test.py
 todo.md
 */hotpotqa_corpus_kg_input
 vllm
+.ipynb_checkpoints/
+outputs/
+colab_outputs/
+*.log

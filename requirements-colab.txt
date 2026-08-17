@@ -1,0 +1,6 @@
+# Runtime dependencies for the small-scale Colab workflow.
+# vLLM is installed separately from its nightly wheel index because Qwen3.5
+# support tracks recent vLLM releases.
+-e .
+faiss-cpu>=1.8.0
+requests>=2.31.0

@@ -48,7 +48,9 @@ dependencies = [
     "accelerate>=1.7.0",
     "nltk",
     "graphdatascience",
-    "json_repair"
+    "json_repair",
+    "faiss-cpu>=1.8.0",
+    "torch>=2.2.0"
 ]
 [project.optional-dependencies]
 nvembed = [
