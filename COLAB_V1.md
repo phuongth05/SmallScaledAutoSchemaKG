@@ -29,6 +29,20 @@ The notebook performs these stages:
 6. exports CSV and GraphML;
 7. writes a machine-readable run summary.
 
+The install cell removes Colab's preinstalled `torchaudio` and `torchvision`
+wheels after installing vLLM. They are not used by this text-only workflow and
+can otherwise remain compiled for a different CUDA version than the PyTorch
+version selected by vLLM.
+
+### Recover an already-running Colab session
+
+If vLLM reports that PyTorch and TorchAudio were compiled with different CUDA
+versions, run this once and then rerun the model-server cell:
+
+```python
+!pip uninstall -y torchaudio torchvision
+```
+
 ## Run from a Linux GPU machine
 
 Start the model server:
