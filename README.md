@@ -15,7 +15,7 @@ for the staged experimental plan.
 
 ### HotpotQA experiment
 
-The staged HotpotQA workflow streams a small official dataset slice, keeps QA
+The staged HotpotQA workflow fetches a small official dataset slice, keeps QA
 labels separate from KG input, and packages graph outputs with provenance. See
 [`HOTPOTQA_COLAB.md`](HOTPOTQA_COLAB.md).
 

@@ -6,7 +6,8 @@ AutoSchemaKG graph from the official `hotpotqa/hotpot_qa` dataset with a local
 
 ## What this experiment does
 
-1. Streams a deterministic contiguous slice of HotpotQA from Hugging Face.
+1. Fetches a deterministic contiguous slice through the Hugging Face Dataset
+   Viewer API, without downloading a full Parquet shard.
 2. Writes Wikipedia context passages to `hotpotqa_corpus.json`.
 3. Writes questions, answers, and gold supporting facts separately to
    `qa_manifest.json`; answers are not included in the KG construction input.
@@ -54,6 +55,7 @@ python scripts/prepare_hotpotqa.py \
   --config distractor \
   --split validation \
   --max-questions 3 \
+  --loader api \
   --context-mode all \
   --output-dir data/hotpotqa_v1 \
   --overwrite

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import itertools
 import json
 import shutil
 from collections import Counter
@@ -27,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=("train", "validation", "test"), default="validation")
     parser.add_argument("--max-questions", type=int, default=3)
     parser.add_argument("--start-index", type=int, default=0)
+    parser.add_argument(
+        "--loader",
+        choices=("api", "datasets"),
+        default="api",
+        help="api uses the fast Dataset Viewer rows endpoint; datasets uses streaming=True.",
+    )
     parser.add_argument(
         "--context-mode",
         choices=("all", "supporting"),
@@ -61,7 +66,7 @@ def stable_document_id(title: str, text: str) -> str:
     return f"hotpotqa-{digest}"
 
 
-def load_examples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
+def load_examples_with_datasets(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
     from datasets import load_dataset
 
     dataset = load_dataset(
@@ -70,7 +75,49 @@ def load_examples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
         split=args.split,
         streaming=True,
     )
+    import itertools
+
     return itertools.islice(dataset, args.start_index, args.start_index + args.max_questions)
+
+
+def load_examples_with_api(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
+    import requests
+
+    endpoint = "https://datasets-server.huggingface.co/rows"
+    remaining = args.max_questions
+    offset = args.start_index
+    while remaining:
+        length = min(remaining, 100)
+        print(f"Requesting HotpotQA rows {offset}-{offset + length - 1} ...", flush=True)
+        response = requests.get(
+            endpoint,
+            params={
+                "dataset": DATASET_ID,
+                "config": args.config,
+                "split": args.split,
+                "offset": offset,
+                "length": length,
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+        rows = response.json().get("rows", [])
+        if not rows:
+            break
+        for item in rows:
+            yield item["row"]
+        count = len(rows)
+        remaining -= count
+        offset += count
+        print(f"Received {count} rows.", flush=True)
+        if count < length:
+            break
+
+
+def load_examples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
+    if args.loader == "api":
+        return load_examples_with_api(args)
+    return load_examples_with_datasets(args)
 
 
 def validate_args(args: argparse.Namespace) -> Path:
@@ -164,7 +211,8 @@ def main() -> None:
         "dataset_id": DATASET_ID,
         "config": args.config,
         "split": args.split,
-        "streaming": True,
+        "access_method": "dataset-viewer-api" if args.loader == "api" else "datasets-streaming",
+        "streaming": args.loader == "datasets",
         "start_index": args.start_index,
         "max_questions_requested": args.max_questions,
         "questions_written": len(qa_manifest),
