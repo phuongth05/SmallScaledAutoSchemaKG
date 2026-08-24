@@ -13,6 +13,14 @@ for the staged experimental plan.
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_v1_Qwen35_2B.ipynb)
 
+### HotpotQA experiment
+
+The staged HotpotQA workflow streams a small official dataset slice, keeps QA
+labels separate from KG input, and packages graph outputs with provenance. See
+[`HOTPOTQA_COLAB.md`](HOTPOTQA_COLAB.md).
+
+[![Open HotpotQA in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_Qwen35_2B.ipynb)
+
 This project uses the following paper and data:
 
 *   **Paper:** [Read the paper](https://arxiv.org/abs/2505.23628)

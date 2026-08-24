@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-new-tokens", type=int, default=1536)
     parser.add_argument("--chunk-size", type=int, default=3000)
+    parser.add_argument(
+        "--experiment-metadata",
+        type=Path,
+        help="Optional JSON metadata copied into run_summary.json for provenance.",
+    )
     parser.add_argument("--without-concepts", action="store_true")
     parser.add_argument(
         "--overwrite",
@@ -48,7 +53,7 @@ def parse_args() -> argparse.Namespace:
 
 def ensure_safe_output(output_dir: Path) -> Path:
     output_dir = output_dir.expanduser().resolve()
-    if output_dir == output_dir.anchor or len(output_dir.parts) < 3:
+    if output_dir == Path(output_dir.anchor) or len(output_dir.parts) < 3:
         raise ValueError(f"Refusing to use unsafe output directory: {output_dir}")
     return output_dir
 
@@ -106,6 +111,10 @@ def build_summary(args: argparse.Namespace) -> dict:
         "include_concepts": not args.without_concepts,
         "graphml": str(graph_path),
     }
+    if args.experiment_metadata:
+        metadata_path = args.experiment_metadata.expanduser().resolve()
+        summary["experiment_metadata_file"] = str(metadata_path)
+        summary["experiment"] = json.loads(metadata_path.read_text(encoding="utf-8"))
     if graph_path.exists():
         graph = nx.read_graphml(graph_path)
         node_types: dict[str, int] = {}
