@@ -21,6 +21,11 @@ labels separate from KG input, and packages graph outputs with provenance. See
 
 [![Open HotpotQA in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_Qwen35_2B.ipynb)
 
+To restore a saved graph ZIP, visualize it, and run local-Qwen QA without
+rebuilding the graph, see [`HOTPOTQA_INFERENCE.md`](HOTPOTQA_INFERENCE.md).
+
+[![Open HotpotQA inference in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_Inference_From_Zip.ipynb)
+
 This project uses the following paper and data:
 
 *   **Paper:** [Read the paper](https://arxiv.org/abs/2505.23628)
