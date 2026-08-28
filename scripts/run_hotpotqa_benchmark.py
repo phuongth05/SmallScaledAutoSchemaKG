@@ -21,6 +21,8 @@ sys.path.insert(0, str(ROOT))
 
 from hotpotqa_benchmark import (CachedEncoder, answer_scores, atomic_json, digest,
     graph_variant, index_graph, load_bundle, make_hipporag2, make_index, retrieval_scores)
+from colab_v2_utils import (FILTER_PROTOCOL, FilterSelectionError, IncompleteGenerationError,
+    filter_messages, normalize_base_url, parse_selected_ids)
 
 
 def parse_args():
@@ -44,6 +46,9 @@ def parse_args():
     parser.add_argument("--context-length", type=int, default=4096, help="Must not exceed server max-model-len")
     parser.add_argument("--max-answer-tokens", type=int, default=128)
     parser.add_argument("--max-filter-tokens", type=int, default=1024)
+    parser.add_argument("--filter-max-attempts", type=int, default=2, help="Bounded retries for invalid/incomplete filter outputs")
+    parser.add_argument("--filter-failure-policy", choices=("error", "dense"), default="error",
+                        help="After invalid output retries: stop, or explicitly log a per-question dense fallback")
     parser.add_argument("--no-filter-edges", action="store_true", help="Diagnostic deviation: no LLM fact filtering")
     parser.add_argument("--retrieval-only", action="store_true", help="Do not answer or report EM/F1")
     parser.add_argument("--inspect-only", action="store_true", help="Validate bundle/variants, no model downloads or server")
@@ -54,9 +59,8 @@ class LocalReader:
     def __init__(self, args):
         from openai import OpenAI
         from transformers import AutoTokenizer
-        from atlas_rag.llm_generator.prompt.rag_prompt import filter_triple_messages
-
         self.args = args
+        args.base_url = normalize_base_url(args.base_url)
         self.client = OpenAI(base_url=args.base_url, api_key=os.environ.get("LOCAL_LLM_API_KEY", "EMPTY"),
                              timeout=180, max_retries=0)
         models = self.client.models.list(timeout=10)
@@ -64,16 +68,14 @@ class LocalReader:
         if args.model not in available:
             raise ValueError(f"Requested {args.model}, server serves {available}")
         self.tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.model_revision)
-        self.filter_prompt = filter_triple_messages
-        if getattr(args, "language", "en") == "vi":
-            self.filter_prompt = [dict(m) for m in filter_triple_messages]
-            self.filter_prompt[0]["content"] += "\nCâu hỏi và facts có thể bằng tiếng Việt. Sao chép chính xác các fact được chọn, không dịch hoặc sửa tên."
 
     def token_count(self, messages):
         return len(self.tokenizer.apply_chat_template(messages, tokenize=True,
                     add_generation_prompt=True, enable_thinking=False))
 
     def generate(self, messages, max_tokens):
+        self.last_usage = None
+        self.last_generation = None
         tokens = self.token_count(messages)
         if tokens + max_tokens + 32 > self.args.context_length:
             raise ValueError(f"Prompt {tokens} + output {max_tokens} exceeds context budget")
@@ -84,35 +86,71 @@ class LocalReader:
         self.last_usage = ({"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens,
                             "total_tokens": usage.total_tokens} if usage is not None else None)
         choice = completion.choices[0]
-        if choice.finish_reason != "stop":
-            raise RuntimeError(f"Incomplete LLM response: finish_reason={choice.finish_reason}; increase token/context budget in a NEW run directory")
         text = re.sub(r"<think>.*?</think>", "", choice.message.content or "", flags=re.S).strip()
+        self.last_generation = {"raw_response": choice.message.content or "", "finish_reason": choice.finish_reason,
+                                "input_tokens": tokens, "usage": self.last_usage}
+        if choice.finish_reason != "stop":
+            raise IncompleteGenerationError(f"Incomplete LLM response: finish_reason={choice.finish_reason}; increase token/context budget in a NEW run directory")
         return text, tokens
 
     def filter_facts(self, question, facts):
-        import json_repair
-
+        if any(not isinstance(f, (list, tuple)) or len(f) != 3 or
+               not all(isinstance(x, str) for x in f) for f in facts):
+            raise ValueError("Internal candidate facts must be triples of strings")
         candidates = list(facts)
+        language = getattr(self.args, "language", "en")
+        attempts = getattr(self.args, "filter_max_attempts", 2)
+        policy = getattr(self.args, "filter_failure_policy", "error")
+        if attempts < 1 or attempts > 5 or policy not in {"error", "dense"}:
+            raise ValueError("Require 1..5 filter attempts and error/dense policy")
         while candidates:
-            messages = list(self.filter_prompt) + [{"role": "user", "content":
-                f"[[ ## question ## ]]\n{question}\n[[ ## fact_before_filter ## ]]\n" + json.dumps({"fact": candidates})}]
+            # Budget for the longer retry prompt so candidate IDs remain stable.
+            messages = filter_messages(question, candidates, retry=True, language=language)
             if self.token_count(messages) + self.args.max_filter_tokens + 32 <= self.args.context_length:
                 break
             candidates.pop()
         if not candidates:
             raise ValueError("Filter prompt cannot fit one candidate; increase --context-length")
-        text, tokens = self.generate(messages, self.args.max_filter_tokens)
-        parsed = json_repair.loads(text)
-        if not isinstance(parsed, dict) or not isinstance(parsed.get("fact"), list):
-            raise ValueError("Invalid filter JSON; not silently substituting unfiltered retrieval")
-        facts_out = parsed["fact"]
-        if any(not isinstance(f, list) or len(f) != 3 or not all(isinstance(x, str) for x in f) for f in facts_out):
-            raise ValueError("Invalid filter fact shape")
-        if {tuple(f) for f in facts_out} - {tuple(f) for f in candidates}:
-            raise ValueError("LLM invented/changed candidate facts; rerun to retry")
-        return facts_out, {"enabled": True, "candidate_count": len(candidates),
-                           "dropped_for_context": len(facts) - len(candidates), "input_tokens": tokens,
-                           "usage": getattr(self, "last_usage", None)}
+        info = {"enabled": True, "protocol": FILTER_PROTOCOL, "candidate_count": len(candidates),
+                "dropped_for_context": len(facts) - len(candidates), "attempts": [],
+                "input_tokens": 0, "usage": None, "failure_policy": policy, "fallback_due_to_error": False}
+        for attempt in range(attempts):
+            messages = filter_messages(question, candidates, retry=attempt > 0, language=language)
+            self.last_generation = None
+            self.last_usage = None
+            try:
+                text, tokens = self.generate(messages, self.args.max_filter_tokens)
+                record = dict(self.last_generation or {"raw_response": text, "input_tokens": tokens,
+                                                       "usage": self.last_usage, "finish_reason": "stop"})
+            except IncompleteGenerationError as exc:
+                record = dict(self.last_generation or {})
+                record["error"] = str(exc)
+                text = None
+            # Network, authentication, tokenizer and server errors are NOT swallowed.
+            if text is not None:
+                try:
+                    selected_ids = parse_selected_ids(text, len(candidates))
+                    record["selected_ids"] = selected_ids
+                except ValueError as exc:
+                    record["error"] = str(exc)
+            info["attempts"].append(record)
+            info["input_tokens"] += record.get("input_tokens", 0)
+            usages = [r.get("usage") for r in info["attempts"]]
+            if all(u is not None for u in usages):
+                info["usage"] = {k: sum(u[k] for u in usages) for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
+            else:
+                info["usage"] = None  # Do not present partial usage as the total for all attempts.
+            if "error" not in record:
+                info["selected_ids"] = selected_ids
+                return [list(candidates[i]) for i in selected_ids], info
+            print(f"Filter response invalid ({attempt + 1}/{attempts}): {record['error']}", flush=True)
+        info["failure_reason"] = "invalid_filter_output_exhausted"
+        if policy == "dense":
+            info["fallback_due_to_error"] = True
+            print("WARNING: filter retries exhausted; using DENSE passage fallback for this question. Recorded in trace.", flush=True)
+            return [], info  # Existing HippoRAG2 empty-selection path ranks dense passages.
+        raise FilterSelectionError("Filter retries exhausted; raw responses are in last_error.json. "
+                                   "No checkpoint was written for this question.", info)
 
     def answer(self, question, passages):
         # Same answer prompt and budget for every baseline/ablation. No gold data.
@@ -141,6 +179,14 @@ class LocalReader:
                       "context_passages": snippets, "usage": getattr(self, "last_usage", None)}
 
 
+def filter_diagnostics(records):
+    filters = [r.get("retrieval_trace", {}).get("filter", {}) for r in records]
+    return {"filter_error_fallback_questions": sum(bool(f.get("fallback_due_to_error")) for f in filters),
+            "filter_retry_calls": sum(max(0, len(f.get("attempts", [])) - 1) for f in filters),
+            "invalid_filter_attempts": sum("error" in a for f in filters for a in f.get("attempts", [])),
+            "filter_context_dropped_candidates": sum(f.get("dropped_for_context", 0) for f in filters)}
+
+
 def write_summary(output, variants, manifest, config):
     summary = {"protocol": "global pooled context corpus; small-model adaptation", "config_id": config,
                "expected_questions_per_method": len(manifest), "methods": {}}
@@ -158,12 +204,17 @@ def write_summary(output, variants, manifest, config):
             means = {key: sum(r["metrics"][key] for r in records) / len(records)
                      for key in records[0]["metrics"]}
         summary["methods"][variant] = {"completed": len(records), "complete": len(records) == len(manifest),
-                                        "metrics": means}
+                                        "metrics": means, "diagnostics": filter_diagnostics(records)}
     atomic_json(output / "summary.json", summary)
     return summary
 
 
 def run(args):
+    args.base_url = normalize_base_url(args.base_url)
+    args.filter_max_attempts = getattr(args, "filter_max_attempts", 2)
+    args.filter_failure_policy = getattr(args, "filter_failure_policy", "error")
+    if not 1 <= args.filter_max_attempts <= 5 or args.filter_failure_policy not in {"error", "dense"}:
+        raise ValueError("Require 1..5 filter attempts and error/dense policy")
     if min(args.top_edges, args.batch_size, args.max_answer_tokens, args.max_filter_tokens) <= 0:
         raise ValueError("Counts and token limits must be positive")
     if args.top_passages < 5:
@@ -195,9 +246,10 @@ def run(args):
     output.mkdir(parents=True, exist_ok=True)
     # Validate resume before downloading models or calling the local server.
     settings = {k: v for k, v in vars(args).items() if k not in {"source", "output_dir", "base_url", "inspect_only"}}
+    settings["filter_protocol"] = FILTER_PROTOCOL
     code_files = [Path(__file__), ROOT / "scripts/hotpotqa_benchmark.py",
                   ROOT / "atlas_rag/retriever/hipporag2.py", ROOT / "atlas_rag/retriever/inference_config.py",
-                  ROOT / "atlas_rag/llm_generator/prompt/rag_prompt.py"]
+                  ROOT / "atlas_rag/llm_generator/prompt/rag_prompt.py", ROOT / "scripts/colab_v2_utils.py"]
     versions = {}
     for name in ("numpy", "networkx", "scipy", "faiss-cpu", "sentence-transformers", "torch", "transformers", "openai", "json-repair"):
         try:
@@ -277,10 +329,14 @@ def run(args):
                                          for key, value in metrics.items()}
                 aggregate["completed"] = previous + 1
                 aggregate["complete"] = aggregate["completed"] == len(manifest)
+                for key, value in filter_diagnostics([record]).items():
+                    aggregate["diagnostics"][key] += value
                 atomic_json(output / "summary.json", summary)
             except Exception as exc:
                 atomic_json(output / "last_error.json", {"method": variant, "question_id": sample["id"],
-                    "error": str(exc), "resume": "Rerun identical command; completed questions are preserved."})
+                    "error": str(exc), "error_type": type(exc).__name__, "time_unix": time.time(),
+                    "filter_diagnostics": getattr(exc, "diagnostics", None),
+                    "resume": "Rerun identical command; completed questions are preserved."})
                 raise
             elapsed = time.monotonic() - start
             eta = elapsed / number * (len(pending) - number)

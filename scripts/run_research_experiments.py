@@ -52,6 +52,8 @@ def parse_args(argv=None):
     p.add_argument("--context-length", type=int, default=4096)
     p.add_argument("--max-answer-tokens", type=int, default=128)
     p.add_argument("--max-filter-tokens", type=int, default=1024)
+    p.add_argument("--filter-max-attempts", type=int, default=2)
+    p.add_argument("--filter-failure-policy", choices=("error", "dense"), default="error")
     return p.parse_args(argv)
 
 
@@ -157,7 +159,8 @@ def run(args):
     settings = {k: v for k, v in vars(args).items() if k not in excluded}
     files = [Path(__file__), ROOT / "scripts/research_experiments.py", ROOT / "scripts/hotpotqa_benchmark.py",
              ROOT / "scripts/run_hotpotqa_benchmark.py", ROOT / "atlas_rag/retriever/hipporag2.py",
-             ROOT / "atlas_rag/retriever/inference_config.py", ROOT / "atlas_rag/llm_generator/prompt/rag_prompt.py"]
+             ROOT / "atlas_rag/retriever/inference_config.py", ROOT / "atlas_rag/llm_generator/prompt/rag_prompt.py",
+             ROOT / "scripts/colab_v2_utils.py"]
     versions = {}
     for package in ("numpy", "networkx", "scipy", "faiss-cpu", "sentence-transformers", "torch", "transformers", "openai", "json-repair"):
         try:
@@ -307,6 +310,7 @@ def execute(args, output, protocol, arms, ids, by_id, graph, docs, mapping):
                 atomic_json(folder / "summary.json", summary)
             except Exception as exc:
                 atomic_json(folder / "last_error.json", {"question_id": qid, "error": str(exc),
+                    "filter_diagnostics": getattr(exc, "diagnostics", None),
                     "resume": "Rerun identical arguments. Completed question checkpoints are preserved."})
                 raise
             eta = (time.monotonic() - loop_start) / i * (len(pending) - i)

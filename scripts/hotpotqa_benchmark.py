@@ -299,6 +299,8 @@ def make_hipporag2(data, encoder, reader, top_edges=30, alpha=0.9, weight=0.9, f
                           "selected_edges": [list(self.edge_list[i]) for i, f in zip(candidates, facts)
                                              if tuple(f) in selected_set],
                           "seed_nodes": averaged, "dense_fallback": not bool(averaged),
+                          "dense_fallback_reason": (filter_info.get("failure_reason", "no_relevant_facts")
+                                                    if not averaged else None),
                           "filter": filter_info}
             return averaged
 

@@ -50,13 +50,20 @@ def report(root, stage="diagnostic", split="smoke", baseline="dense", repetition
         timings = {k: {"mean": float(np.mean([r["timing"][k] for r in records])),
                        "p95": float(np.quantile([r["timing"][k] for r in records], 0.95))}
                    for k in ("retrieval_seconds", "answer_seconds", "total_seconds")}
-        usages = [info["usage"] for r in records for info in (r.get("reader"), r["retrieval_trace"].get("filter"))
-                  if info and info.get("usage")]
-        llm_calls = sum(int(r.get("reader") is not None) + int(r["retrieval_trace"].get("filter", {}).get("enabled", False)) for r in records)
+        calls = []
+        for r in records:
+            if r.get("reader") is not None:
+                calls.append(r["reader"])
+            filtering = r["retrieval_trace"].get("filter", {})
+            if filtering.get("enabled"):
+                calls.extend(filtering.get("attempts") or [filtering])
+        usages = [call["usage"] for call in calls if call.get("usage")]
+        llm_calls = len(calls)
         entry = {"n": len(records), "metrics": means, "by_question_type": groups, "timing_seconds": timings,
                  "llm_usage": {"calls": llm_calls, "calls_with_usage": len(usages),
                     "reported_total_tokens": sum(u["total_tokens"] for u in usages) if usages else None},
                  "dense_fallback_questions": sum(bool(r["retrieval_trace"].get("dense_fallback")) for r in records),
+                 "filter_error_fallback_questions": sum(bool(r["retrieval_trace"].get("filter", {}).get("fallback_due_to_error")) for r in records),
                  "filter_candidates_dropped_for_context": sum(r["retrieval_trace"].get("filter", {}).get("dropped_for_context", 0) for r in records),
                  "reader_truncated_passages": sum((r.get("reader") or {}).get("truncated_passages", 0) for r in records),
                  "sessions": read_json(folder / "sessions.json")}

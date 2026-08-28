@@ -35,7 +35,11 @@ It keeps Qwen3.5-2B local, saves resumable per-question checkpoints to Drive,
 and measures answer EM/F1 plus supporting-document recall. It is a small-model
 adaptation, not an exact reproduction of the paper's published results.
 
-[![Open HotpotQA v2 in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
+V2.1 uses candidate-ID filtering with bounded retries, explicit per-question fallback
+diagnostics and live logs on Drive. Use a new run directory; existing graph ZIPs can
+be reused. The updated notebook targets the research branch (push required).
+
+[![Open HotpotQA v2 in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/codex/research-concept-retrieval/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
 
 ### Vietnamese HotpotQA (HotpotQA-VI-1K)
 

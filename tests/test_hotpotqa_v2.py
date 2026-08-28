@@ -227,14 +227,13 @@ def test_fact_filter_context_guard_and_candidate_validation():
     from types import SimpleNamespace as NS
     reader = runner.LocalReader.__new__(runner.LocalReader)
     reader.args = NS(context_length=160, max_filter_tokens=10)
-    reader.filter_prompt = []
     reader.token_count = lambda messages: len(messages[-1]["content"])
     facts = [["a", "b", "c"], ["d" * 100, "e", "f"]]
-    reader.generate = lambda messages, budget: ('{"fact": [["a", "b", "c"]]}', 70)
+    reader.generate = lambda messages, budget: ('{"selected_ids": [0]}', 70)
     selected, info = reader.filter_facts("q", facts)
     assert selected == facts[:1] and info["dropped_for_context"] == 1
-    reader.generate = lambda messages, budget: ('{"fact": [["x", "y", "z"]]}', 70)
-    with pytest.raises(ValueError, match="invented"):
+    reader.generate = lambda messages, budget: ('{"selected_ids": [99]}', 70)
+    with pytest.raises(ValueError, match="retries exhausted"):
         reader.filter_facts("q", facts)
 
 

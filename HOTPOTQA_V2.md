@@ -1,4 +1,37 @@
-# HotpotQA v2 — closer to the paper, still a small-model adaptation
+# HotpotQA v2.1 — candidate-ID filtering and persistent error logs
+
+## Upgrade after the malformed-fact error
+
+The old text filter sometimes returned facts with 4–5 elements instead of triples.
+The updated filter asks Qwen for `{"selected_ids": [0, 2]}` and maps validated integer
+IDs back to the unchanged candidate triples. It never slices malformed facts,
+rewrites relations, accepts string/bool/out-of-range IDs, or silently invents edges.
+
+- At most **2 attempts** by default; a retry adds an explicit format reminder.
+- CLI default `--filter-failure-policy error`: after invalid/incomplete output retries,
+  stop and save raw attempts in `last_error.json`. Successful checkpoints remain.
+- Notebook default `FILTER_FAILURE_POLICY='dense'`: after those retries, use dense
+  **passage** retrieval for that question, clearly warn, and record the reason/attempts.
+  This is not global `--no-filter-edges`, and not successful graph retrieval.
+- Network/authentication/server/tokenizer errors are not converted into fallback.
+- `summary.json` counts `filter_error_fallback_questions`, `filter_retry_calls`,
+  `invalid_filter_attempts`, and `filter_context_dropped_candidates` per method.
+  Per-question traces distinguish an empty valid selection from malformed-output fallback.
+- Input URL validation unwraps a single pasted Markdown URL. The notebook constructs
+  the plain URL in the execution cell, preventing stale command reuse.
+- `logs/benchmark_<timestamp>.log` captures stdout/stderr live on Drive. Failures show
+  the actual error tail, not just the outer `CalledProcessError` command dump.
+
+**Use a new run root:** the notebook defaults to `hotpotqa_v2_id_filter_smoke`, not
+`hotpotqa_v2_smoke`. It can copy the old construction ZIP without changing old results.
+The graph is reused, but inference is rerun under the new filter protocol. Old completed
+v2/no-filter outputs remain valid for their recorded settings; do not merge them into
+this run or bypass the configuration fingerprint. Resume works only within one unchanged
+protocol. The new prompt/retry/fallback policy is another declared deviation from the paper.
+
+The updated notebook clones `codex/research-concept-retrieval` by default (`CODE_REF`).
+This update must be pushed there before that clone can download it. Saved revisions
+stay pinned; the notebook refuses a revisions file for the old text-filter protocol.
 
 ## What changed
 
@@ -11,7 +44,7 @@ inside your construction ZIP**, using the authors' `HippoRAG2Retriever`.
 | Candidates | All corpus passages, never `sample.document_ids` or gold support labels |
 | Embeddings | `sentence-transformers/multi-qa-MiniLM-L6-cos-v1`, CPU, normalized |
 | Edge search | FAISS exact inner-product index, top 30 semantic edges |
-| Filtering | Original AutoSchemaKG fact-filter prompt, local Qwen, candidate-only validation |
+| Filtering | Local Qwen selects candidate IDs; bounded validation retries; explicit failure policy |
 | Propagation | Upstream HippoRAG2 passage/node seeds and directed NetworkX PageRank, alpha 0.9, passage weight 0.9 |
 | QA evidence | Top 5 retrieved passages, not a lexical list of 60 triples |
 | Comparison | Dense passage baseline, Entity-KG, Entity-Event-KG, Full-KG |
@@ -29,7 +62,7 @@ No new LLM extraction is needed to create these ablations.
 Open `colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb`. After these files have been
 pushed to your GitHub, the notebook can be opened at:
 
-[Open v2 in Colab](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
+[Open updated v2 in Colab (after push)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/codex/research-concept-retrieval/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
 
 1. Select GPU before uploading. The default server is local Qwen3.5-2B.
 2. Mount Drive; set a new `RUN_ROOT` for this experiment.
@@ -53,7 +86,8 @@ python -u scripts/run_hotpotqa_benchmark.py construction.zip \
   --variants dense entity entity_event full \
   --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 \
   --embedding-device cpu --top-edges 30 --top-passages 5 \
-  --ppr-alpha 0.9 --passage-weight 0.9
+  --ppr-alpha 0.9 --passage-weight 0.9 \
+  --filter-max-attempts 2 --filter-failure-policy dense
 ```
 
 For a CPU-only diagnostic, without starting the LLM:
@@ -66,6 +100,7 @@ python -u scripts/run_hotpotqa_benchmark.py construction.zip \
 
 This diagnostic reports retrieval metrics **only**, no EM/F1. Disabling the
 LLM filter is a declared deviation and must not be presented as the full run.
+For strict filtered QA, use `--filter-failure-policy error` in a separate output directory.
 
 ## Next: prepare a larger, reproducible corpus
 
@@ -180,6 +215,7 @@ reproducing the paper's published EM/F1.
 
 ```bash
 python -m pytest tests/test_hotpotqa_v2.py -q
+python -m pytest tests/test_colab_v2_filter.py -q
 python scripts/check_colab_v1.py
 python scripts/check_hotpotqa.py
 python scripts/check_hotpotqa_inference.py

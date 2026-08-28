@@ -55,6 +55,14 @@ selective re-extraction or a stronger-model verifier; those are follow-up experi
 
 ## Two execution stages
 
+V2.1 updates the shared reader to candidate-ID filtering. Research runs default to
+`--filter-max-attempts 2 --filter-failure-policy error`; use a NEW output root after
+upgrading. Optional `--filter-failure-policy dense` is a distinct declared protocol:
+only exhausted invalid/incomplete filter outputs trigger per-question dense fallback.
+Network failures still stop. Reports count filter-error fallbacks and actual retry calls;
+raw attempts and per-call token usage are retained. Do not combine old text-filter
+results with these ID-filter results.
+
 - `diagnostic`: CPU retrieval, **all LLM filters disabled**, no reader and no EM/F1.
   BM25 needs no model; dense/graph download an embedding model if not cached.
 - `qa`: same retrieval plus local Qwen fact filtering (graph arms) and short-answer
