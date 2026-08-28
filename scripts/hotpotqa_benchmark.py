@@ -12,6 +12,7 @@ import os
 import re
 import string
 import time
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
@@ -74,7 +75,7 @@ def load_bundle(source: Path):
             raise ValueError("Empty manifest/corpus")
         if len({str(q['id']) for q in manifest}) != len(manifest):
             raise ValueError("Duplicate question IDs")
-        if any(q.get("answer") is None or not q.get("supporting_facts") for q in manifest):
+        if any(q.get("answer") is None or not (q.get("supporting_facts") or q.get("gold_document_ids")) for q in manifest):
             raise ValueError("Evaluation requires validation/train answers and supporting facts, not test labels")
         docs = {str(d["id"]): d for d in corpus}
         if len(docs) != len(corpus):
@@ -109,6 +110,8 @@ def load_bundle(source: Path):
             raise ValueError(f"{len(set(docs) - mapped)} corpus documents have no graph passage")
         if any(set(map(str, q["document_ids"])) - set(docs) for q in manifest):
             raise ValueError("Manifest references missing corpus documents")
+        if any(set(map(str, q.get("gold_document_ids", []))) - set(docs) for q in manifest):
+            raise ValueError("Qrels reference missing corpus documents")
         metadata_names = [n for n in names if PurePosixPath(n).name == "dataset_metadata.json"]
         metadata = json.loads(read(metadata_names[0])) if len(metadata_names) == 1 else {}
         if metadata.get("context_mode") == "supporting":
@@ -150,6 +153,7 @@ class CachedEncoder:
         self.batch_size = batch_size
 
     def encode(self, texts, query_type=None, **kwargs):
+        texts = embedding_inputs(self.model_id, texts, query_type)
         arrays = []
         started = time.monotonic()
         last_log = started
@@ -203,16 +207,32 @@ def index_graph(graph, encoder):
             "text_embeddings": encoder.encode(list(texts.values())), "text_dict": texts}
 
 
-def normalized_answer(value):
+def embedding_inputs(model, texts, query_type=None):
+    if model.startswith("intfloat/multilingual-e5-"):
+        prefix = "query: " if query_type is not None else "passage: "
+        return [prefix + text for text in texts]
+    return texts
+
+
+def normalized_answer(value, language="en"):
+    if language == "vi":
+        value = unicodedata.normalize("NFC", str(value)).casefold()
+        value = "".join(c for c in value if not unicodedata.category(c).startswith("P") and c not in string.punctuation)
+        return " ".join(value.split())
     value = "".join(c for c in str(value).lower() if c not in string.punctuation)
     return " ".join(re.sub(r"\b(a|an|the)\b", " ", value).split())
 
 
-def answer_scores(prediction, gold):
-    p, g = normalized_answer(prediction), normalized_answer(gold)
+def answer_scores(prediction, gold, language="en"):
+    p, g = normalized_answer(prediction, language), normalized_answer(gold, language)
+    booleans = {"yes", "no", "noanswer"}
+    if language == "vi":
+        aliases = {"yes": "có", "no": "không", "noanswer": "không có câu trả lời"}
+        p, g = aliases.get(p, p), aliases.get(g, g)
+        booleans = set(aliases.values())
     em = int(p == g)
     # HotpotQA official special-case: no partial credit for yes/no/noanswer.
-    if p != g and ({p, g} & {"yes", "no", "noanswer"}):
+    if p != g and ({p, g} & booleans):
         return {"em": em, "f1": 0.0}
     common = sum((Counter(p.split()) & Counter(g.split())).values())
     f1 = 2 * common / (len(p.split()) + len(g.split())) if common else 0.0
@@ -220,6 +240,14 @@ def answer_scores(prediction, gold):
 
 
 def retrieval_scores(passage_ids, sample, docs, passage_docs):
+    if sample.get("gold_document_ids"):
+        gold = set(map(str, sample["gold_document_ids"]))
+        metrics = {}
+        for k in (2, 5):
+            retrieved = {d for p in passage_ids[:k] for d in passage_docs[p]}
+            metrics[f"support_recall@{k}"] = len(retrieved & gold) / len(gold)
+            metrics[f"all_support@{k}"] = int(gold <= retrieved)
+        return metrics
     gold_titles = {str(t) for t, _ in sample["supporting_facts"]}
     metrics = {}
     for k in (2, 5):
@@ -229,7 +257,8 @@ def retrieval_scores(passage_ids, sample, docs, passage_docs):
     return metrics
 
 
-def make_hipporag2(data, encoder, reader, top_edges=30, alpha=0.9, weight=0.9, filter_edges=True):
+def make_hipporag2(data, encoder, reader, top_edges=30, alpha=0.9, weight=0.9, filter_edges=True,
+                  candidate_selector=None):
     from atlas_rag.retriever.hipporag2 import HippoRAG2Retriever, min_max_normalize
     from atlas_rag.retriever.inference_config import InferenceConfig
 
@@ -241,9 +270,11 @@ def make_hipporag2(data, encoder, reader, top_edges=30, alpha=0.9, weight=0.9, f
         Empty valid selection triggers the upstream dense-passage fallback.
         """
         def query2edge(self, query, topN=30):
-            query_emb = normalized_embeddings(self.sentence_encoder.encode([query]))
+            query_emb = normalized_embeddings(self.sentence_encoder.encode([query], query_type="edge"))
             _, indices = self.edge_faiss_index.search(query_emb, min(topN, len(self.edge_list)))
             candidates = [int(i) for i in indices[0] if i >= 0]
+            if candidate_selector is not None:
+                candidates = candidate_selector(self.edge_embeddings @ query_emb[0], topN)
             facts = [[str(self.KG.nodes[self.edge_list[i][0]]["id"]),
                       str(self.KG.edges[self.edge_list[i]]["relation"]),
                       str(self.KG.nodes[self.edge_list[i][1]]["id"])] for i in candidates]
@@ -264,6 +295,9 @@ def make_hipporag2(data, encoder, reader, top_edges=30, alpha=0.9, weight=0.9, f
             averaged = {n: sum(s) / len(s) for n, s in node_scores.items()}
             averaged = dict(sorted(averaged.items(), key=lambda x: x[1], reverse=True)[:self.inference_config.topk_nodes])
             self.trace = {"candidate_facts": facts, "selected_facts": selected,
+                          "candidate_edges": [list(self.edge_list[i]) for i in candidates],
+                          "selected_edges": [list(self.edge_list[i]) for i, f in zip(candidates, facts)
+                                             if tuple(f) in selected_set],
                           "seed_nodes": averaged, "dense_fallback": not bool(averaged),
                           "filter": filter_info}
             return averaged

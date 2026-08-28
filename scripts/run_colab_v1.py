@@ -24,6 +24,7 @@ DEFAULT_DATA_DIR = REPO_ROOT / "example" / "example_data"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default="Qwen/Qwen3.5-2B")
+    parser.add_argument("--language", choices=("en", "vi"), default="en", help="Concept-induction language; input metadata.lang selects extraction prompts")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--api-key", default="EMPTY")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
@@ -106,6 +107,7 @@ def build_summary(args: argparse.Namespace) -> dict:
     graph_path = args.output_dir / "kg_graphml" / f"{args.filename_pattern}_graph.graphml"
     summary = {
         "model": args.model,
+        "language": args.language,
         "data": str(args.data_dir / f"{args.filename_pattern}.json"),
         "output_directory": str(args.output_dir),
         "include_concepts": not args.without_concepts,
@@ -150,7 +152,7 @@ def main() -> None:
     if args.phase in {"build", "full"}:
         extractor.convert_json_to_csv()
         if not args.without_concepts:
-            extractor.generate_concept_csv_temp()
+            extractor.generate_concept_csv_temp(language=args.language)
             extractor.create_concept_csv()
         extractor.convert_to_graphml()
 

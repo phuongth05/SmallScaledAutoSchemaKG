@@ -37,6 +37,26 @@ adaptation, not an exact reproduction of the paper's published results.
 
 [![Open HotpotQA v2 in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
 
+### Vietnamese HotpotQA (HotpotQA-VI-1K)
+
+Use [the Vietnamese workflow](HOTPOTQA_VN.md) for
+`Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final`: Vietnamese extraction and
+concept prompts, multilingual E5 embeddings, qrels-ID retrieval evaluation and
+Vietnamese answer scoring. The adapter keeps all 9,822 corpus documents; selecting
+fewer questions does not shrink the graph-construction workload.
+
+[![Open HotpotQA-VN in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_VN.ipynb)
+
+### Concept-retrieval research branch
+
+See [RESEARCH.md](RESEARCH.md) and
+[the research notebook](colab/AutoSchemaKG_Research.ipynb) for CPU diagnostics,
+local-Qwen QA, BM25/dense baselines, concept candidate quotas, weighted/pruned
+graphs, matched random controls, frozen dev/test splits and paired reports.
+The runner defaults to **plan only** and reuses saved outputs without rebuilding
+the graph. The notebook targets `codex/research-concept-retrieval`; that branch
+must be pushed before it can be cloned from Colab.
+
 This project uses the following paper and data:
 
 *   **Paper:** [Read the paper](https://arxiv.org/abs/2505.23628)

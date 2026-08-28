@@ -1,4 +1,7 @@
+from .vietnamese import TRIPLE_VI, CONCEPT_VI
+
 TRIPLE_INSTRUCTIONS = {
+    "vi": TRIPLE_VI,
     "en":{
         "system": "You are a helpful assistant who always response in a valid array of JSON objects without any explanation",
         "entity_relation": """Given a passage, summarize all the important entities and the relations between them in a concise manner. Relations should briefly capture the connections between entities, without repeating information from the head and tail entities. The entities should be as specific as possible. Exclude pronouns from being considered as entities. 
@@ -103,6 +106,7 @@ TRIPLE_INSTRUCTIONS = {
 }
 
 CONCEPT_INSTRUCTIONS = {
+    "vi": CONCEPT_VI,
     "en": {
         "event": """I will give you an EVENT. You need to give several phrases containing 1-2 words for the ABSTRACT EVENT of this EVENT.
             You must return your answer in the following format: phrases1, phrases2, phrases3,...

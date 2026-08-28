@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "description": "Small-model concept-retrieval research, not exact paper reproduction. Tune on dev only.",
+  "arms": [
+    {"name": "bm25", "method": "bm25"},
+    {"name": "dense", "method": "dense"},
+    {"name": "entity", "method": "graph", "variant": "entity"},
+    {"name": "entity_event", "method": "graph", "variant": "entity_event"},
+    {"name": "full", "method": "graph", "variant": "full"},
+    {"name": "full_no_filter", "method": "graph", "variant": "full", "filter": false, "stages": ["qa"]},
+    {"name": "quota_20_10", "method": "graph", "variant": "full", "candidate_policy": "quota", "factual_quota": 20},
+    {"name": "factual_seeds", "method": "graph", "variant": "full", "candidate_policy": "factual"},
+    {"name": "concept_weight_025", "method": "graph", "variant": "full", "concept_weight": 0.25},
+    {"name": "concept_cap_1", "method": "graph", "variant": "full", "concept_cap": 1},
+    {"name": "concept_cap_3", "method": "graph", "variant": "full", "concept_cap": 3},
+    {"name": "random_matched_cap_1", "method": "graph", "variant": "full", "concept_cap": 1, "pruning": "random_matched"},
+    {"name": "oracle", "method": "oracle", "stages": ["qa"]},
+    {"name": "no_context", "method": "no_context", "stages": ["qa"]}
+  ]
+}
