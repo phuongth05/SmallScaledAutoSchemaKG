@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import shutil
 from collections import Counter
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", choices=("train", "validation", "test"), default="validation")
     parser.add_argument("--max-questions", type=int, default=3)
     parser.add_argument("--start-index", type=int, default=0)
+    parser.add_argument("--sampling", choices=("sequential", "random"), default="sequential")
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--loader",
         choices=("api", "datasets"),
@@ -115,9 +118,61 @@ def load_examples_with_api(args: argparse.Namespace) -> Iterable[dict[str, Any]]
 
 
 def load_examples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
+    if args.sampling == "random":
+        return load_random_examples(args)
     if args.loader == "api":
         return load_examples_with_api(args)
     return load_examples_with_datasets(args)
+
+
+def sample_indices(total: int, count: int, seed: int) -> list[int]:
+    if count > total:
+        raise ValueError(f"Requested {count} questions but split has only {total}")
+    return random.Random(seed).sample(range(total), count)
+
+
+def load_random_examples(args: argparse.Namespace) -> Iterable[dict[str, Any]]:
+    """Uniform seeded sampling; fetch each selected 100-row API page once."""
+    if args.loader == "datasets":
+        from datasets import load_dataset
+
+        dataset = load_dataset(DATASET_ID, args.config, split=args.split)
+        indices = sample_indices(len(dataset), args.max_questions, args.seed)
+        args.selected_indices = indices
+        for i in indices:
+            yield dataset[i]
+        return
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=Retry(total=3, backoff_factor=1,
+                  status_forcelist=[429, 500, 502, 503, 504])))
+    params = {"dataset": DATASET_ID, "config": args.config, "split": args.split}
+    try:
+        response = session.get("https://datasets-server.huggingface.co/rows", params={**params, "offset": 0, "length": 1}, timeout=120)
+        response.raise_for_status()
+        total = int(response.json()["num_rows_total"])
+        indices = sample_indices(total, args.max_questions, args.seed)
+        args.selected_indices = indices
+        selected = set(indices)
+        pages = sorted({i // 100 for i in indices})
+        examples = {}
+        for number, page in enumerate(pages, 1):
+            offset = page * 100
+            print(f"Random sample: fetching page {number}/{len(pages)}, offset={offset}", flush=True)
+            response = session.get("https://datasets-server.huggingface.co/rows", params={**params, "offset": offset, "length": min(100, total - offset)}, timeout=120)
+            response.raise_for_status()
+            for item in response.json()["rows"]:
+                if item["row_idx"] in selected:
+                    examples[item["row_idx"]] = item["row"]
+        if set(examples) != selected:
+            raise RuntimeError("Dataset API did not return all selected rows; refusing biased partial sample")
+        for i in indices:
+            yield examples[i]
+    finally:
+        session.close()
 
 
 def validate_args(args: argparse.Namespace) -> Path:
@@ -125,6 +180,8 @@ def validate_args(args: argparse.Namespace) -> Path:
         raise ValueError("--max-questions must be positive")
     if args.start_index < 0:
         raise ValueError("--start-index must be non-negative")
+    if args.sampling == "random" and args.start_index != 0:
+        raise ValueError("Random sampling covers the whole split; omit --start-index")
     if args.config == "distractor" and args.split == "test":
         raise ValueError("The distractor configuration has no test split")
     output_dir = args.output_dir.expanduser().resolve()
@@ -211,9 +268,13 @@ def main() -> None:
         "dataset_id": DATASET_ID,
         "config": args.config,
         "split": args.split,
-        "access_method": "dataset-viewer-api" if args.loader == "api" else "datasets-streaming",
-        "streaming": args.loader == "datasets",
+        "access_method": "dataset-viewer-api" if args.loader == "api" else "datasets",
+        "streaming": args.loader == "datasets" and args.sampling == "sequential",
         "start_index": args.start_index,
+        "sampling": args.sampling,
+        "seed": args.seed if args.sampling == "random" else None,
+        "selected_row_indices": getattr(args, "selected_indices", list(range(args.start_index, args.start_index + len(qa_manifest)))),
+        "selected_question_ids": [q["id"] for q in qa_manifest],
         "max_questions_requested": args.max_questions,
         "questions_written": len(qa_manifest),
         "unique_documents_written": len(documents),

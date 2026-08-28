@@ -26,6 +26,17 @@ rebuilding the graph, see [`HOTPOTQA_INFERENCE.md`](HOTPOTQA_INFERENCE.md).
 
 [![Open HotpotQA inference in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_Inference_From_Zip.ipynb)
 
+### Paper-aligned HotpotQA v2
+
+The new [v2 workflow](HOTPOTQA_V2.md) reuses a construction ZIP and adds
+global-corpus MiniLM/FAISS retrieval, upstream HippoRAG2 PageRank, LLM fact
+filtering, Entity / Entity-Event / Full-KG ablations and a dense baseline.
+It keeps Qwen3.5-2B local, saves resumable per-question checkpoints to Drive,
+and measures answer EM/F1 plus supporting-document recall. It is a small-model
+adaptation, not an exact reproduction of the paper's published results.
+
+[![Open HotpotQA v2 in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_PaperAligned.ipynb)
+
 This project uses the following paper and data:
 
 *   **Paper:** [Read the paper](https://arxiv.org/abs/2505.23628)

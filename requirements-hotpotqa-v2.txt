@@ -1,0 +1,14 @@
+# Install in a dedicated Python 3.12 CPU environment, separate from vLLM.
+# This environment loads MiniLM and tokenizers, not the Qwen model weights.
+numpy==2.2.6
+networkx==3.4.2
+scipy==1.15.3
+faiss-cpu==1.13.2
+sentence-transformers==3.4.1
+transformers==4.57.3
+torch>=2.6,<3
+openai>=1.0,<3
+json-repair==0.58.5
+jsonschema>=4,<5
+tenacity>=9.1.2,<10
+requests>=2.31,<3
