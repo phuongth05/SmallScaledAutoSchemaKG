@@ -19,6 +19,7 @@ WARNING_PATTERNS = {
     "invalid_array_items": re.compile(r"must be an array; dropping item:"),
     "not_object_items": re.compile(r"must be a JSON object\. Problematic item:"),
     "triple_extraction_failures": re.compile(r"Triple extraction failed:"),
+    "semantic_filter_items": re.compile(r"Post-validation dropped event_relation item:"),
 }
 PROCESSED = re.compile(r"Processed\s+(\d+)/(\d+)\s+chunks")
 
@@ -100,6 +101,7 @@ def make_audit(records: list[dict], warnings: dict[int, Counter]) -> dict:
     dropped_names = (
         "missing_field_items", "duplicate_items", "empty_value_items",
         "null_value_items", "invalid_array_items", "not_object_items",
+        "semantic_filter_items",
     )
     dropped = sum(warning_totals[name] for name in dropped_names)
     candidates = valid + dropped

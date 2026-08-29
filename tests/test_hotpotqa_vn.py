@@ -19,6 +19,14 @@ from run_hotpotqa_vn import construction_args
 from audit_vn_extraction_pilot import load_records, make_audit, make_concentration, parse_log
 from run_colab_v1 import inspect_extraction_progress, write_extraction_progress
 
+validation_spec = importlib.util.spec_from_file_location(
+    "extraction_validation",
+    ROOT / "atlas_rag/kg_construction/extraction_validation.py",
+)
+validation_module = importlib.util.module_from_spec(validation_spec)
+validation_spec.loader.exec_module(validation_module)
+sanitize_vietnamese_event_relations = validation_module.sanitize_vietnamese_event_relations
+
 
 @pytest.fixture
 def final_dir(tmp_path):
@@ -183,6 +191,27 @@ def test_vn_pilot_audit_uses_post_validation_records_and_log_warnings(tmp_path):
     assert concentration["top_10_repetition_chunks"][0]["chunk"] == 1
 
 
+def test_vietnamese_event_relation_guard_keeps_only_explicit_grounded_events():
+    source = (
+        "Raven ký hợp đồng với Activision trước khi các nhà phát triển rời Raven "
+        "và thành lập Human Head Studios."
+    )
+    items = [
+        {"Head": "Raven ký hợp đồng với Activision", "Relation": "trước",
+         "Tail": "các nhà phát triển thành lập Human Head Studios"},
+        {"Head": "Raven ký hợp đồng với Activision", "Relation": "bởi vì",
+         "Tail": "các nhà phát triển thành lập Human Head Studios"},
+        {"Head": "Raven Software", "Relation": "sau", "Tail": "Activision"},
+        {"Head": "Raven ký hợp đồng với Activision", "Relation": "trước",
+         "Tail": "Raven ký hợp đồng với Activision"},
+    ]
+    kept, dropped = sanitize_vietnamese_event_relations(items, source)
+    assert kept == [items[0]]
+    assert {item["reason"] for item in dropped} == {
+        "relation_not_explicit_in_source", "endpoint_not_event_clause", "self_loop"
+    }
+
+
 def test_extraction_progress_rejects_corrupt_tail(tmp_path):
     extraction = tmp_path / "graph" / "kg_extraction"
     extraction.mkdir(parents=True)
@@ -232,7 +261,8 @@ def test_vn_notebook_syntax_and_default_safe_phase():
     source = "\n".join("".join(c["source"]) for c in notebook["cells"])
     for expected in ("RUN_PHASE = 'prepare'", "data/hotpotqa_vi_1k/final", "scripts/run_hotpotqa_vn.py",
                      "intfloat/multilingual-e5-small", "requirements-colab.txt",
-                     "EXPERIMENT_PROFILE = 'ab_rp115'", "'chunks': 109", "'penalty': 1.15",
+                     "EXPERIMENT_PROFILE = 'ab_event_guard_v2'", "hotpotqa_vn_ab_event_guard_v2",
+                     "'chunks': 109", "'penalty': 1.15",
                      "UPGRADE_CODE_FOR_RESUME = False"):
         assert expected in source
     for cell in notebook["cells"]:

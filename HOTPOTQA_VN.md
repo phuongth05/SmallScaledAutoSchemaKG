@@ -36,8 +36,9 @@ File: `colab/AutoSchemaKG_HotpotQA_VN.ipynb`.
 
 Notebook clone cả code lẫn repo dữ liệu, ghim revision, dùng hai môi trường
 riêng cho CPU embedding/KG client và GPU vLLM, lưu kết quả vào Drive.
-Revision resumable-v2 mặc định dùng `RUN_ROOT=.../hotpotqa_vn_resumable_v2` để
-không trộn checkpoint cũ từng chấp nhận endpoint rỗng với graph mới.
+Notebook dùng profile để tách checkpoint. Profile mặc định `ab_event_guard_v2`
+chạy pilot 109 chunk với repetition penalty 1.15 và validator quan hệ sự kiện;
+không trộn với baseline `hotpotqa_vn_resumable_v2` hay pilot `ab_rp115`.
 
 1. `prepare` có thể chạy CPU. Chọn GPU trước khi chuyển sang `extract`, `build` hoặc `benchmark`.
 2. Giữ `RUN_PHASE='prepare'` ở lần đầu để kiểm tra dữ liệu. Bản thân bước prepare
@@ -45,9 +46,8 @@ không trộn checkpoint cũ từng chấp nhận endpoint rỗng với graph m�
 3. Đổi `RUN_PHASE='extract'`, chạy lại cell cấu hình, cell môi trường, cell server và cell chạy phase.
    Extraction checkpoint sau từng chunk trong `graph/kg_extraction/*.json`. Nếu Colab
    disconnect, mở lại cùng `RUN_ROOT` và chạy lại `extract`; wrapper kiểm tra JSONL rồi
-   tự bỏ qua các chunk đã hoàn tất. Notebook mặc định dừng sạch sau 500 chunk mới mỗi
-   phiên (`EXTRACTION_CHUNKS_PER_RUN=500`, khoảng vài giờ theo GPU), rồi chạy lại
-   `extract` để tiếp tục. Không dùng `--overwrite`.
+   tự bỏ qua các chunk đã hoàn tất. Số chunk mỗi lượt do profile quyết định: pilot
+   mặc định dừng sau 109 chunk; baseline dùng 500. Không dùng `--overwrite`.
    Đây là bước tốn tài nguyên trên cả 9.822 tài liệu; chưa có đo đạc thời gian thực
    cho corpus này. Không suy ra thời gian từ việc chỉ chọn 3 câu hỏi.
 4. Extraction hoàn tất thì đổi sang `build` để sinh concept và GraphML.

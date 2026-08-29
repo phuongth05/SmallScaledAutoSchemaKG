@@ -30,6 +30,7 @@ from atlas_rag.vectorstore.create_neo4j_index import create_faiss_index
 from atlas_rag.kg_construction.triple_config import ProcessingConfig
 from atlas_rag.llm_generator.prompt.triple_extraction_prompt import TRIPLE_INSTRUCTIONS
 from atlas_rag.llm_generator.format.validate_json_schema import ATLAS_SCHEMA
+from atlas_rag.kg_construction.extraction_validation import sanitize_vietnamese_event_relations
  
 # Prompt instructions and schema, will be modified during the initialization of KnowledgeGraphExtractor according to the config if provided
 
@@ -324,8 +325,11 @@ class KnowledgeGraphExtractor:
         dataset_config = {"train": data_files}
         return load_dataset(self.config.data_directory, data_files=dataset_config["train"])
     
-    def process_stage(self, instructions: Dict[str, str], result_schema: Dict) -> Tuple[List[str], List[List[Dict[str, Any]]]]:
-        """Process first stage: entity-relation extraction."""
+    def process_stage(self, instructions: Dict[str, str], result_schema: Dict,
+                      stage_name: str = "", source_texts: List[str] | None = None,
+                      metadata: List[Dict[str, Any]] | None = None
+                      ) -> Tuple[List[str], List[List[Dict[str, Any]]]]:
+        """Process one extraction stage and apply language-specific semantic guards."""
         outputs = self.model.triple_extraction(messages=instructions,
                                                 max_tokens=self.config.max_new_tokens if self.config.max_new_tokens else self.model.config.max_tokens, 
                                                 repetition_penalty=self.config.repetition_penalty if self.config.repetition_penalty else self.model.config.repetition_penalty,
@@ -337,6 +341,19 @@ class KnowledgeGraphExtractor:
         else:
             text_outputs = outputs
         structured_data = self.parser.extract_structured_data(text_outputs)
+        if stage_name == "event_relation" and source_texts is not None and metadata is not None:
+            for index, (items, source, item_metadata) in enumerate(
+                    zip(structured_data, source_texts, metadata)):
+                if item_metadata.get("lang", "en") != "vi":
+                    continue
+                sanitized, dropped = sanitize_vietnamese_event_relations(items, source)
+                structured_data[index] = sanitized
+                for rejected in dropped:
+                    print(
+                        "Post-validation dropped event_relation item: "
+                        f"reason={rejected['reason']} item={rejected['item']}",
+                        flush=True,
+                    )
         return outputs, structured_data
     
     def create_output_filename(self) -> str:
@@ -426,7 +443,9 @@ class KnowledgeGraphExtractor:
                     stage_outputs = {}
                     result_keys = list(messages_dict.keys())
                     for key in result_keys:
-                        batch_result = self.process_stage(messages_dict[key], result_schema = self.result_schema[key])
+                        batch_result = self.process_stage(
+                            messages_dict[key], result_schema=self.result_schema[key],
+                            stage_name=key, source_texts=batch_texts, metadata=batch_metadata)
                         # each batch_result is (llm_rawoutput, triple-dict), and at the same time llm_rawoutput can be (llm_rawoutput, llm_usage)
                         
                         stage_outputs[key] = batch_result
