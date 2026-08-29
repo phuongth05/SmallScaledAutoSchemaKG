@@ -1,8 +1,10 @@
 """Vietnamese adapter tests; no GPU, model downloads or source dataset copies."""
 import argparse
 import ast
+import importlib.util
 import json
 import sys
+import types
 import unicodedata
 from pathlib import Path
 
@@ -155,6 +157,40 @@ def test_extraction_progress_rejects_corrupt_tail(tmp_path):
     checkpoint.write_text('{"id":"doc","original_text":"ok"}\n{"id":', encoding="utf-8")
     with pytest.raises(ValueError, match="Corrupt extraction checkpoint"):
         inspect_extraction_progress(tmp_path / "graph", "hotpotqa_corpus")
+
+
+def test_triple_validator_drops_blank_endpoints_and_duplicates(monkeypatch):
+    monkeypatch.setitem(sys.modules, "json_repair", types.SimpleNamespace(loads=json.loads))
+    monkeypatch.setitem(sys.modules, "jsonschema", types.SimpleNamespace(validate=lambda **kwargs: None))
+    path = ROOT / "atlas_rag/llm_generator/format/validate_json_output.py"
+    spec = importlib.util.spec_from_file_location("validate_json_output_standalone", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    schema = {"items": {"required": ["Head", "Relation", "Tail"], "properties": {
+        key: {"type": "string", "minLength": 1} for key in ("Head", "Relation", "Tail")}}}
+    response = json.dumps([
+        {"Head": " A ", "Relation": " r ", "Tail": " B "},
+        {"Head": "A", "Relation": "r", "Tail": "B"},
+        {"Head": "A", "Relation": "r", "Tail": "   "},
+        {"Head": "A", "Relation": "r", "Tail": None},
+    ])
+    assert module.fix_triple_extraction_response(response, schema=schema) == [
+        {"Head": "A", "Relation": "r", "Tail": "B"}
+    ]
+
+
+def test_atlas_schema_requires_nonempty_strings():
+    namespace = {}
+    schema_path = ROOT / "atlas_rag/llm_generator/format/validate_json_schema.py"
+    exec(schema_path.read_text(encoding="utf-8"), namespace)
+    schema = namespace["ATLAS_SCHEMA"]
+    for stage in schema.values():
+        for value in stage["items"]["properties"].values():
+            if value["type"] == "string":
+                assert value["minLength"] == 1
+            elif value["type"] == "array":
+                assert value["minItems"] == 1
+                assert value["items"]["minLength"] == 1
 
 
 def test_vn_notebook_syntax_and_default_safe_phase():

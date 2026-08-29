@@ -81,23 +81,41 @@ def fix_triple_extraction_response(response: str, **kwargs) -> str:
             print(f"Item {idx} missing required keys: {missing}. Problematic item: {item}")
             continue
         
-        # Validate and correct the values according to the schema
+        # Validate and normalize required values. Never keep blank graph endpoints:
+        # jsonschema's string type accepts "" unless minLength is also present.
+        invalid_item = False
         for key in required_keys:
-            # since it a array of items, here for example it loop through Head
             required_type = result_schema['items']['properties'].get(key, {}).get("type")
             if required_type == "string":
-                if not isinstance(corrected_item[key], str) or not corrected_item[key].strip():
-                    # convert to str for empty values
-                    if corrected_item[key] is None:
-                        continue
-                    corrected_item[key] = str(corrected_item[key]).strip()
-                    print(f"Fixed item {idx} {key} to string: {corrected_item[key]}")
-            if required_type == "array":
-                if not isinstance(corrected_item[key], list) or not corrected_item[key]:
-                    print(f"Item {idx} {key} must be a non-empty array. Problematic item: {corrected_item}")
-                    continue
-                else:
-                    corrected_item[key] = [str(item).strip() for item in corrected_item[key] if isinstance(item, str)]
+                value = corrected_item[key]
+                if value is None:
+                    print(f"Item {idx} {key} is null; dropping item: {corrected_item}")
+                    invalid_item = True
+                    break
+                value = str(value).strip()
+                if not value:
+                    print(f"Item {idx} {key} is empty; dropping item: {corrected_item}")
+                    invalid_item = True
+                    break
+                corrected_item[key] = value
+            elif required_type == "array":
+                value = corrected_item[key]
+                if not isinstance(value, list):
+                    print(f"Item {idx} {key} must be an array; dropping item: {corrected_item}")
+                    invalid_item = True
+                    break
+                cleaned_values = [
+                    str(element).strip() for element in value
+                    if element is not None and str(element).strip()
+                ]
+                if not cleaned_values:
+                    print(f"Item {idx} {key} is empty; dropping item: {corrected_item}")
+                    invalid_item = True
+                    break
+                corrected_item[key] = cleaned_values
+
+        if invalid_item:
+            continue
     
         triple_tuple = tuple((k, str(v)) for k, v in corrected_item.items())
         if triple_tuple in seen_triples:

@@ -39,14 +39,17 @@ ATLAS_SCHEMA = {
             "properties": {
                 "Head": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "The head entity in the relation, must be a non-empty string."
                 },
                 "Relation": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "The relation between the head and tail entities, must be a non-empty string."
                 },
                 "Tail": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "The tail entity in the relation, must be a non-empty string."
                 }
             },
@@ -62,12 +65,15 @@ ATLAS_SCHEMA = {
             "properties": {
                 "Event": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "A simple sentence describing the event, must be a non-empty string."
                 },
                 "Entity": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                         "type": "string",
+                        "minLength": 1,
                         "description": "An entity related to the event, must be a non-empty string."
                     },
                     "description": "An array of entities related to the event, must not be empty."
@@ -85,14 +91,17 @@ ATLAS_SCHEMA = {
             "properties": {
                 "Head": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "A simple sentence describing the first event, must be a non-empty string."
                 },
                 "Relation": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "The relation between the two events, must be a non-empty string."
                 },
                 "Tail": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "A simple sentence describing the second event, must be a non-empty string."
                 }
             },

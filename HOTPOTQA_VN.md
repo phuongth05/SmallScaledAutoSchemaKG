@@ -32,10 +32,12 @@ Nguồn: [Prepare-data-HotpotQA-VN](https://github.com/chichic21039/Prepare-data
 
 File: `colab/AutoSchemaKG_HotpotQA_VN.ipynb`.
 
-[Mở trên Colab sau khi code VN được push](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/main/colab/AutoSchemaKG_HotpotQA_VN.ipynb)
+[Mở notebook branch research trên Colab](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/codex/research-concept-retrieval/colab/AutoSchemaKG_HotpotQA_VN.ipynb)
 
 Notebook clone cả code lẫn repo dữ liệu, ghim revision, dùng hai môi trường
 riêng cho CPU embedding/KG client và GPU vLLM, lưu kết quả vào Drive.
+Revision resumable-v2 mặc định dùng `RUN_ROOT=.../hotpotqa_vn_resumable_v2` để
+không trộn checkpoint cũ từng chấp nhận endpoint rỗng với graph mới.
 
 1. `prepare` có thể chạy CPU. Chọn GPU trước khi chuyển sang `extract`, `build` hoặc `benchmark`.
 2. Giữ `RUN_PHASE='prepare'` ở lần đầu để kiểm tra dữ liệu. Bản thân bước prepare
