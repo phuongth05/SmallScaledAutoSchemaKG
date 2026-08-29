@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from prepare_hotpotqa_vn import load_final, prepare
 from hotpotqa_benchmark import answer_scores, embedding_inputs, load_bundle, retrieval_scores
 from run_hotpotqa_vn import construction_args
+from audit_vn_extraction_pilot import load_records, make_audit, make_concentration, parse_log
 from run_colab_v1 import inspect_extraction_progress, write_extraction_progress
 
 
@@ -150,6 +151,36 @@ def test_extraction_progress_counts_durable_jsonl_records(tmp_path):
     write_extraction_progress(tmp_path / "graph", progress)
     saved = json.loads((tmp_path / "graph" / "extraction_progress.json").read_text())
     assert saved["completed_chunks"] == 3 and saved["updated_at_utc"]
+
+
+def test_vn_pilot_audit_uses_post_validation_records_and_log_warnings(tmp_path):
+    root = tmp_path / "run"
+    extraction = root / "experiment" / "graph" / "kg_extraction"
+    extraction.mkdir(parents=True)
+    records = [
+        {"id": "a", "original_text": "A", "entity_relation_dict": [{"Head": "A"}],
+         "event_entity_dict": [], "event_relation_dict": []},
+        {"id": "b", "original_text": "B", "entity_relation_dict": [],
+         "event_entity_dict": [], "event_relation_dict": []},
+    ]
+    (extraction / "Qwen_hotpotqa_corpus_output_1.json").write_text(
+        "\n".join(json.dumps(item) for item in records) + "\n", encoding="utf-8")
+    (root / "extract.log").write_text(
+        "Item 3 is a duplicate triple: {'Head': 'A'}\n"
+        "Processed 1/2 chunks (this run: 1)\n"
+        "Item 1 missing required keys: {'Tail'}. Problematic item: {}\n"
+        "Processed 2/2 chunks (this run: 2)\n",
+        encoding="utf-8",
+    )
+    loaded = load_records(root, 2)
+    warnings = parse_log(root, 2)
+    audit = make_audit(loaded, warnings)
+    concentration = make_concentration(loaded, warnings)
+    assert audit["valid_saved_items"] == 1
+    assert audit["estimated_raw_candidates"] == 3
+    assert audit["empty_chunks"] == 1
+    assert concentration["duplicates_total"] == 1
+    assert concentration["top_10_repetition_chunks"][0]["chunk"] == 1
 
 
 def test_extraction_progress_rejects_corrupt_tail(tmp_path):
