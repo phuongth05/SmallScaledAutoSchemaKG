@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
         help="extract: LLM extraction only; build: convert existing extraction; full: both",
     )
     parser.add_argument("--max-new-tokens", type=int, default=1536)
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.05,
+        help="vLLM repetition penalty used by all extraction stages.",
+    )
     parser.add_argument("--chunk-size", type=int, default=3000)
     parser.add_argument(
         "--experiment-metadata",
@@ -119,7 +125,7 @@ def make_extractor(args: argparse.Namespace) -> object:
         max_tokens=args.max_new_tokens,
         temperature=0.0,
         top_p=1.0,
-        repetition_penalty=1.05,
+        repetition_penalty=args.repetition_penalty,
         do_sample=False,
         seed=42,
         chat_template_kwargs={"enable_thinking": False},
@@ -197,6 +203,8 @@ def main() -> None:
         raise ValueError("--overwrite and --resume-extraction are mutually exclusive")
     if args.max_extraction_chunks is not None and args.max_extraction_chunks < 1:
         raise ValueError("--max-extraction-chunks must be positive")
+    if args.repetition_penalty <= 0:
+        raise ValueError("--repetition-penalty must be positive")
     if args.overwrite and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)

@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--chunk-size", type=int, default=3000, help="Characters, not tokens")
     parser.add_argument("--max-new-tokens", type=int, default=1536)
+    parser.add_argument("--repetition-penalty", type=float, default=1.05)
     parser.add_argument("--max-extraction-chunks", type=int,
                         help="Gracefully checkpoint extract after N new chunks; rerun unchanged to continue")
     parser.add_argument("--embedding-model", default="intfloat/multilingual-e5-small")
@@ -57,7 +58,8 @@ def construction_args(args, data_dir, graph_dir, phase):
             "--experiment-metadata", data_dir / "dataset_metadata.json",
             "--output-dir", graph_dir, "--phase", phase, "--language", "vi",
             "--model", args.model, "--base-url", args.base_url,
-            "--chunk-size", args.chunk_size, "--max-new-tokens", args.max_new_tokens]
+            "--chunk-size", args.chunk_size, "--max-new-tokens", args.max_new_tokens,
+            "--repetition-penalty", args.repetition_penalty]
     if phase == "extract":
         command.append("--resume-extraction")
         if getattr(args, "max_extraction_chunks", None):
@@ -90,6 +92,7 @@ def main():
     if args.phase in {"extract", "build", "all"}:
         config = {"model": args.model, "model_revision": args.model_revision, "language": "vi", "chunk_size": args.chunk_size,
                   "max_new_tokens": args.max_new_tokens,
+                  "repetition_penalty": args.repetition_penalty,
                   "corpus_sha256": hashlib.sha256((data / "hotpotqa_corpus.json").read_bytes()).hexdigest(),
                   "prompts_sha256": hashlib.sha256((ROOT / "atlas_rag/llm_generator/prompt/vietnamese.py").read_bytes()).hexdigest()}
         config_file = graph / "vn_construction_config.json"

@@ -126,12 +126,14 @@ def test_vietnamese_bundle_compatible_with_v2(final_dir, tmp_path):
 
 def test_construction_command_has_vi_and_no_overwrite(tmp_path):
     args = argparse.Namespace(model="Qwen/Qwen3.5-2B", base_url="http://127.0.0.1:8000/v1",
-                              chunk_size=3000, max_new_tokens=1536, max_extraction_chunks=500)
+                              chunk_size=3000, max_new_tokens=1536, max_extraction_chunks=500,
+                              repetition_penalty=1.15)
     command = construction_args(args, tmp_path / "input", tmp_path / "graph", "extract")
     assert command[command.index("--language") + 1] == "vi"
     assert "--overwrite" not in command
     assert "--resume-extraction" in command
     assert command[command.index("--max-extraction-chunks") + 1] == 500
+    assert command[command.index("--repetition-penalty") + 1] == 1.15
 
 
 def test_extraction_progress_counts_durable_jsonl_records(tmp_path):
@@ -199,7 +201,8 @@ def test_vn_notebook_syntax_and_default_safe_phase():
     source = "\n".join("".join(c["source"]) for c in notebook["cells"])
     for expected in ("RUN_PHASE = 'prepare'", "data/hotpotqa_vi_1k/final", "scripts/run_hotpotqa_vn.py",
                      "intfloat/multilingual-e5-small", "requirements-colab.txt",
-                     "EXTRACTION_CHUNKS_PER_RUN = 500", "UPGRADE_CODE_FOR_RESUME = False"):
+                     "EXPERIMENT_PROFILE = 'ab_rp115'", "'chunks': 109", "'penalty': 1.15",
+                     "UPGRADE_CODE_FOR_RESUME = False"):
         assert expected in source
     for cell in notebook["cells"]:
         if cell["cell_type"] == "code":
