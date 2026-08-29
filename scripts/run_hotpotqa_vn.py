@@ -32,6 +32,8 @@ def parse_args():
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--chunk-size", type=int, default=3000, help="Characters, not tokens")
     parser.add_argument("--max-new-tokens", type=int, default=1536)
+    parser.add_argument("--max-extraction-chunks", type=int,
+                        help="Gracefully checkpoint extract after N new chunks; rerun unchanged to continue")
     parser.add_argument("--embedding-model", default="intfloat/multilingual-e5-small")
     parser.add_argument("--embedding-revision")
     parser.add_argument("--model-revision", help="Tokenizer revision; server must use matching model weights")
@@ -51,11 +53,16 @@ def call_script(name, arguments):
 
 
 def construction_args(args, data_dir, graph_dir, phase):
-    return ["--data-dir", data_dir, "--filename-pattern", "hotpotqa_corpus",
+    command = ["--data-dir", data_dir, "--filename-pattern", "hotpotqa_corpus",
             "--experiment-metadata", data_dir / "dataset_metadata.json",
             "--output-dir", graph_dir, "--phase", phase, "--language", "vi",
             "--model", args.model, "--base-url", args.base_url,
             "--chunk-size", args.chunk_size, "--max-new-tokens", args.max_new_tokens]
+    if phase == "extract":
+        command.append("--resume-extraction")
+        if getattr(args, "max_extraction_chunks", None):
+            command += ["--max-extraction-chunks", args.max_extraction_chunks]
+    return command
 
 
 def main():
@@ -95,9 +102,19 @@ def main():
             print("Extraction already completed; keeping saved output.", flush=True)
         else:
             if (graph / "kg_extraction").exists() and any((graph / "kg_extraction").iterdir()):
-                raise RuntimeError("Partial extraction exists. Automatic extraction resume is not supported here; inspect it or choose a NEW work directory. Do not use --overwrite.")
+                print("Partial extraction found; validating JSONL checkpoints and resuming.", flush=True)
             call_script("run_colab_v1.py", construction_args(args, data, graph, "extract"))
-            marker.write_text('{"complete": true}', encoding="utf-8")
+            progress_file = graph / "extraction_progress.json"
+            progress = json.loads(progress_file.read_text(encoding="utf-8"))
+            if progress.get("complete"):
+                marker.write_text('{"complete": true}', encoding="utf-8")
+            else:
+                print(
+                    f"Extraction checkpoint saved: {progress.get('completed_chunks')}/"
+                    f"{progress.get('total_chunks')} chunks. Rerun phase extract unchanged to continue.",
+                    flush=True,
+                )
+                return
     if args.phase in {"build", "all"}:
         if not (graph / "vn_extraction_complete.json").exists():
             raise RuntimeError("Complete the extract phase before build")

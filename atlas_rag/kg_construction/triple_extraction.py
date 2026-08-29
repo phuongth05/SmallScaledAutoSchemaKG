@@ -230,8 +230,11 @@ class CustomDataLoader:
         """Iterate through batches."""
         batch_size = self.processor.config.batch_size_triple
         start_idx = self.processor.config.resume_from * batch_size
+        end_idx = len(self.processed_data)
+        if self.processor.config.max_chunks_per_run:
+            end_idx = min(end_idx, start_idx + self.processor.config.max_chunks_per_run)
         
-        for i in tqdm(range(start_idx, len(self.processed_data), batch_size)):
+        for i in tqdm(range(start_idx, end_idx, batch_size)):
             batch_data = self.processed_data[i:i + batch_size]
             
             # Prepare instructions
@@ -338,7 +341,7 @@ class KnowledgeGraphExtractor:
     
     def create_output_filename(self) -> str:
         """Create output filename with timestamp and shard info."""
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
         model_name_safe = self.config.model_path.replace("/", "_")
         
         filename = (f"{model_name_safe}_{self.config.filename_pattern}_output_"
@@ -390,16 +393,34 @@ class KnowledgeGraphExtractor:
         processor = DatasetProcessor(self.config, self.prompt_instructions, self.result_schema)
         data_loader = CustomDataLoader(dataset["train"], processor, self.prompt_instructions, self.result_schema)
         
-        output_file = self.create_output_filename()
         print(f"Model: {self.config.model_path}")
         
-        batch_counter = 0
+        total_chunks = len(data_loader)
+        batch_size = self.config.batch_size_triple
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+        if self.config.resume_from > total_batches:
+            raise ValueError(
+                f"resume_from={self.config.resume_from} exceeds total batches={total_batches}; "
+                "the extraction directory likely contains duplicate or incompatible files"
+            )
+        batch_counter = self.config.resume_from
+        processed_this_run = 0
+        if batch_counter == total_batches:
+            print(f"All {total_chunks} chunks are already extracted.", flush=True)
+            return {
+                "resume_from": self.config.resume_from,
+                "processed_this_run": 0,
+                "total_chunks": total_chunks,
+                "complete": True,
+            }
+        output_file = self.create_output_filename()
         if self.config.record:
             extraction_start_time = time.time()
         with torch.no_grad():
             with open(output_file, "w") as output_stream:
                 for batch in data_loader:
                     batch_counter += 1
+                    processed_this_run += 1
                     messages_dict, batch_ids, batch_texts, batch_metadata = batch
                     
                     stage_outputs = {}
@@ -412,7 +433,11 @@ class KnowledgeGraphExtractor:
 
 
                     # Write results
-                    print(f"Processed {batch_counter} batches ({batch_counter * self.config.batch_size_triple} chunks)")
+                    print(
+                        f"Processed {min(batch_counter * batch_size, total_chunks)}/{total_chunks} chunks "
+                        f"(this run: {processed_this_run * batch_size})",
+                        flush=True,
+                    )
                     for i in range(len(batch_ids)):
                         id = batch_ids[i]
                         text = batch_texts[i]
@@ -450,6 +475,12 @@ class KnowledgeGraphExtractor:
                             f.writelines(lines)
                     except:
                         print("Failed to add extraction time to the last json object")
+        return {
+            "resume_from": self.config.resume_from,
+            "processed_this_run": min(processed_this_run * batch_size, total_chunks),
+            "total_chunks": total_chunks,
+            "complete": batch_counter == total_batches,
+        }
 
     def convert_json_to_csv(self):
         json2csv(
@@ -586,4 +617,4 @@ def main():
     extractor.run_extraction()
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -16,6 +16,7 @@ class ProcessingConfig:
     use_8bit: bool = False
     debug_mode: bool = False
     resume_from: int = 0
+    max_chunks_per_run: int = None
     record : bool = False
     max_workers: int = 8
     remove_doc_spaces: bool = False

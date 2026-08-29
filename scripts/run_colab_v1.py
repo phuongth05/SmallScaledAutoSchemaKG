@@ -11,6 +11,7 @@ import argparse
 import json
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,11 +46,59 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--without-concepts", action="store_true")
     parser.add_argument(
+        "--resume-extraction",
+        action="store_true",
+        help="Resume after valid JSONL records already saved in kg_extraction.",
+    )
+    parser.add_argument(
+        "--max-extraction-chunks",
+        type=int,
+        help="Gracefully checkpoint after at most this many new chunks; default runs all remaining chunks.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Remove the selected output directory before starting.",
     )
     return parser.parse_args()
+
+
+def inspect_extraction_progress(output_dir: Path, filename_pattern: str) -> dict:
+    """Count durable extraction records and reject corrupt checkpoints."""
+    extraction_dir = output_dir / "kg_extraction"
+    files = sorted(
+        path for path in extraction_dir.glob("*.json")
+        if filename_pattern in path.name
+    ) if extraction_dir.is_dir() else []
+    records = 0
+    file_counts = {}
+    for path in files:
+        count = 0
+        with path.open(encoding="utf-8") as stream:
+            for line_number, line in enumerate(stream, 1):
+                if not line.strip():
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"Corrupt extraction checkpoint {path}:{line_number}; "
+                        "preserve the file and inspect its final line before resuming"
+                    ) from exc
+                if not isinstance(item, dict) or not {"id", "original_text"} <= set(item):
+                    raise ValueError(f"Invalid extraction checkpoint record {path}:{line_number}")
+                count += 1
+        file_counts[path.name] = count
+        records += count
+    return {"completed_chunks": records, "files": file_counts}
+
+
+def write_extraction_progress(output_dir: Path, progress: dict) -> None:
+    payload = dict(progress, updated_at_utc=datetime.now(timezone.utc).isoformat())
+    target = output_dir / "extraction_progress.json"
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(target)
 
 
 def ensure_safe_output(output_dir: Path) -> Path:
@@ -97,6 +146,8 @@ def make_extractor(args: argparse.Namespace) -> object:
         record=True,
         chunk_size=args.chunk_size,
         allow_empty=False,
+        resume_from=args.resume_from,
+        max_chunks_per_run=args.max_extraction_chunks,
     )
     return KnowledgeGraphExtractor(model=generator, config=config)
 
@@ -142,13 +193,34 @@ def main() -> None:
         raise FileNotFoundError(
             f"No input matching {args.filename_pattern}*.json* in {args.data_dir}"
         )
+    if args.overwrite and args.resume_extraction:
+        raise ValueError("--overwrite and --resume-extraction are mutually exclusive")
+    if args.max_extraction_chunks is not None and args.max_extraction_chunks < 1:
+        raise ValueError("--max-extraction-chunks must be positive")
     if args.overwrite and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    progress = inspect_extraction_progress(args.output_dir, args.filename_pattern)
+    if progress["completed_chunks"] and not args.resume_extraction and args.phase in {"extract", "full"}:
+        raise FileExistsError(
+            "Partial extraction exists. Pass --resume-extraction to continue without duplicating chunks."
+        )
+    args.resume_from = progress["completed_chunks"] if args.resume_extraction else 0
+    if args.resume_from:
+        print(
+            f"Resuming extraction after {args.resume_from} durable chunks "
+            f"from {len(progress['files'])} file(s).",
+            flush=True,
+        )
+    write_extraction_progress(args.output_dir, progress)
+
     extractor = make_extractor(args)
     if args.phase in {"extract", "full"}:
-        extractor.run_extraction()
+        extraction_result = extractor.run_extraction()
+        progress = inspect_extraction_progress(args.output_dir, args.filename_pattern)
+        progress.update(extraction_result or {})
+        write_extraction_progress(args.output_dir, progress)
     if args.phase in {"build", "full"}:
         extractor.convert_json_to_csv()
         if not args.without_concepts:

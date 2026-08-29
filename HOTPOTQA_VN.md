@@ -37,14 +37,23 @@ File: `colab/AutoSchemaKG_HotpotQA_VN.ipynb`.
 Notebook clone cả code lẫn repo dữ liệu, ghim revision, dùng hai môi trường
 riêng cho CPU embedding/KG client và GPU vLLM, lưu kết quả vào Drive.
 
-1. Chọn GPU trước khi chạy notebook.
+1. `prepare` có thể chạy CPU. Chọn GPU trước khi chuyển sang `extract`, `build` hoặc `benchmark`.
 2. Giữ `RUN_PHASE='prepare'` ở lần đầu để kiểm tra dữ liệu. Bản thân bước prepare
-   không cần GPU; notebook chọn GPU từ đầu để tránh reset runtime về sau.
-3. Đổi `RUN_PHASE='extract'`, chạy lại cell cấu hình, cell server và cell chạy phase.
+   không cần GPU; nếu đổi loại runtime làm reset `/content`, chạy lại setup với cùng `RUN_ROOT`.
+3. Đổi `RUN_PHASE='extract'`, chạy lại cell cấu hình, cell môi trường, cell server và cell chạy phase.
+   Extraction checkpoint sau từng chunk trong `graph/kg_extraction/*.json`. Nếu Colab
+   disconnect, mở lại cùng `RUN_ROOT` và chạy lại `extract`; wrapper kiểm tra JSONL rồi
+   tự bỏ qua các chunk đã hoàn tất. Notebook mặc định dừng sạch sau 500 chunk mới mỗi
+   phiên (`EXTRACTION_CHUNKS_PER_RUN=500`, khoảng vài giờ theo GPU), rồi chạy lại
+   `extract` để tiếp tục. Không dùng `--overwrite`.
    Đây là bước tốn tài nguyên trên cả 9.822 tài liệu; chưa có đo đạc thời gian thực
    cho corpus này. Không suy ra thời gian từ việc chỉ chọn 3 câu hỏi.
 4. Extraction hoàn tất thì đổi sang `build` để sinh concept và GraphML.
 5. Dùng `package` để lưu ZIP graph/provenance, rồi `benchmark` để chạy QA.
+
+Tiến độ resume được ghi ở `graph/extraction_progress.json`. File này chỉ là snapshot;
+nguồn sự thật là số JSON record hợp lệ đã flush trong `graph/kg_extraction/*.json`.
+JSONL hỏng sẽ làm resume dừng rõ ràng thay vì bỏ qua hoặc tạo graph thiếu dữ liệu.
 6. Chạy cell download trước khi disconnect và giữ notebook đã chạy.
 
 `MAX_QUESTIONS` chọn số câu ở **prepare**, không sửa được manifest đã chuẩn bị bằng
