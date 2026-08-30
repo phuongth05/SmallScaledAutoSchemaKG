@@ -305,6 +305,10 @@ class KnowledgeGraphExtractor:
                 if one_to_one:
                     assert len(triples) == 3, "One-to-one triple schema must have exactly three fields: subject, relation, object"
 
+        if not self.config.include_event_relations:
+            self.result_schema.pop("event_relation", None)
+            print("Event-relation extraction disabled for this ablation run.", flush=True)
+
     def set_model(self, model:LLMGenerator):
         """Set or update the LLM model."""
         self.model = model

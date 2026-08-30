@@ -22,6 +22,7 @@ class ProcessingConfig:
     remove_doc_spaces: bool = False
     allow_empty: bool = True
     include_concept: bool = True
+    include_event_relations: bool = True
     deduplicate_text: bool = False
     # Custom configuration for triple extraction
     triple_extraction_prompt_path: str = None

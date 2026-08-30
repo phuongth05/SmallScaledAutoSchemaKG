@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--without-concepts", action="store_true")
     parser.add_argument(
+        "--without-event-relations",
+        action="store_true",
+        help="Extract entity relations and event-entity edges, but skip event-event relations.",
+    )
+    parser.add_argument(
         "--resume-extraction",
         action="store_true",
         help="Resume after valid JSONL records already saved in kg_extraction.",
@@ -149,6 +154,7 @@ def make_extractor(args: argparse.Namespace) -> object:
         max_workers=1,
         remove_doc_spaces=True,
         include_concept=not args.without_concepts,
+        include_event_relations=not args.without_event_relations,
         record=True,
         chunk_size=args.chunk_size,
         allow_empty=False,
@@ -168,6 +174,7 @@ def build_summary(args: argparse.Namespace) -> dict:
         "data": str(args.data_dir / f"{args.filename_pattern}.json"),
         "output_directory": str(args.output_dir),
         "include_concepts": not args.without_concepts,
+        "include_event_relations": not args.without_event_relations,
         "graphml": str(graph_path),
     }
     if args.experiment_metadata:

@@ -36,9 +36,10 @@ File: `colab/AutoSchemaKG_HotpotQA_VN.ipynb`.
 
 Notebook clone cả code lẫn repo dữ liệu, ghim revision, dùng hai môi trường
 riêng cho CPU embedding/KG client và GPU vLLM, lưu kết quả vào Drive.
-Notebook dùng profile để tách checkpoint. Profile mặc định `ab_event_guard_v2`
-chạy pilot 109 chunk với repetition penalty 1.15 và validator quan hệ sự kiện;
-không trộn với baseline `hotpotqa_vn_resumable_v2` hay pilot `ab_rp115`.
+Notebook dùng profile để tách checkpoint. Profile mặc định `ab_entity_event_v3`
+chạy pilot ablation 109 chunk với repetition penalty 1.15, giữ entity-relation và
+event-entity nhưng không gọi stage event-relation. Kết quả không trộn với baseline,
+pilot `ab_rp115` hay `ab_event_guard_v2`.
 
 1. `prepare` có thể chạy CPU. Chọn GPU trước khi chuyển sang `extract`, `build` hoặc `benchmark`.
 2. Giữ `RUN_PHASE='prepare'` ở lần đầu để kiểm tra dữ liệu. Bản thân bước prepare

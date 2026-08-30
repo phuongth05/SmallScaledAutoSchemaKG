@@ -43,6 +43,8 @@ def parse_args():
                         default=["dense", "entity", "entity_event", "full"])
     parser.add_argument("--retrieval-only", action="store_true")
     parser.add_argument("--no-filter-edges", action="store_true")
+    parser.add_argument("--without-event-relations", action="store_true",
+                        help="Ablation: keep entity/event nodes but skip event-event extraction")
     return parser.parse_args()
 
 
@@ -60,6 +62,8 @@ def construction_args(args, data_dir, graph_dir, phase):
             "--model", args.model, "--base-url", args.base_url,
             "--chunk-size", args.chunk_size, "--max-new-tokens", args.max_new_tokens,
             "--repetition-penalty", args.repetition_penalty]
+    if getattr(args, "without_event_relations", False):
+        command.append("--without-event-relations")
     if phase == "extract":
         command.append("--resume-extraction")
         if getattr(args, "max_extraction_chunks", None):
@@ -93,6 +97,7 @@ def main():
         config = {"model": args.model, "model_revision": args.model_revision, "language": "vi", "chunk_size": args.chunk_size,
                   "max_new_tokens": args.max_new_tokens,
                   "repetition_penalty": args.repetition_penalty,
+                  "include_event_relations": not args.without_event_relations,
                   "corpus_sha256": hashlib.sha256((data / "hotpotqa_corpus.json").read_bytes()).hexdigest(),
                   "prompts_sha256": hashlib.sha256((ROOT / "atlas_rag/llm_generator/prompt/vietnamese.py").read_bytes()).hexdigest()}
         config_file = graph / "vn_construction_config.json"
