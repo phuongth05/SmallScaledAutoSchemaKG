@@ -22,6 +22,10 @@ class ProcessingConfig:
     remove_doc_spaces: bool = False
     allow_empty: bool = True
     include_concept: bool = True
+    # When false, extraction and graph construction are entity-only (plus concepts).
+    # This is intentionally distinct from include_event_relations, which only omits
+    # the event--event stage while retaining event--entity extraction.
+    include_events: bool = True
     include_event_relations: bool = True
     deduplicate_text: bool = False
     # Custom configuration for triple extraction

@@ -29,7 +29,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="Construction ZIP or directory containing graph and provenance")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/hotpotqa_v2"))
-    parser.add_argument("--variants", nargs="+", choices=("entity", "entity_event", "full", "dense"),
+    parser.add_argument("--variants", nargs="+", choices=("entity", "entity_event", "full", "no_event", "dense"),
                         default=["dense", "entity", "entity_event", "full"])
     parser.add_argument("--model", default="Qwen/Qwen3.5-2B")
     parser.add_argument("--language", choices=("auto", "en", "vi"), default="auto")

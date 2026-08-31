@@ -7,6 +7,7 @@
     {"name": "entity", "method": "graph", "variant": "entity"},
     {"name": "entity_event", "method": "graph", "variant": "entity_event"},
     {"name": "full", "method": "graph", "variant": "full"},
+    {"name": "no_event", "method": "graph", "variant": "no_event"},
     {"name": "full_no_filter", "method": "graph", "variant": "full", "filter": false, "stages": ["qa"]},
     {"name": "quota_20_10", "method": "graph", "variant": "full", "candidate_policy": "quota", "factual_quota": 20},
     {"name": "factual_seeds", "method": "graph", "variant": "full", "candidate_policy": "factual"},

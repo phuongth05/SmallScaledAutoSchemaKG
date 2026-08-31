@@ -27,6 +27,13 @@ validation_module = importlib.util.module_from_spec(validation_spec)
 validation_spec.loader.exec_module(validation_module)
 sanitize_vietnamese_event_relations = validation_module.sanitize_vietnamese_event_relations
 
+json_to_csv_spec = importlib.util.spec_from_file_location(
+    "json_to_csv", ROOT / "atlas_rag/kg_construction/utils/json_processing/json_to_csv.py",
+)
+json_to_csv_module = importlib.util.module_from_spec(json_to_csv_spec)
+json_to_csv_spec.loader.exec_module(json_to_csv_module)
+json2csv = json_to_csv_module.json2csv
+
 
 @pytest.fixture
 def final_dir(tmp_path):
@@ -146,6 +153,32 @@ def test_construction_command_has_vi_and_no_overwrite(tmp_path):
     assert command.count("--without-event-relations") == 1
 
 
+def test_no_event_construction_command_forwards_only_the_no_event_flag(tmp_path):
+    args = argparse.Namespace(model="Qwen/Qwen3.5-2B", base_url="http://127.0.0.1:8000/v1",
+                              chunk_size=3000, max_new_tokens=1536, max_extraction_chunks=1,
+                              repetition_penalty=1.15, without_event_relations=False,
+                              without_events=True)
+    command = construction_args(args, tmp_path / "input", tmp_path / "graph", "extract")
+    assert command.count("--without-events") == 1
+    assert "--without-event-relations" not in command
+
+
+def test_no_event_records_create_no_event_csv_nodes_or_edges(tmp_path):
+    extraction = tmp_path / "extraction"
+    extraction.mkdir()
+    (extraction / "hotpotqa_corpus_output.json").write_text(json.dumps({
+        "id": "d1", "original_text": "Alice founded Acme.",
+        "entity_relation_dict": [{"Head": "Alice", "Relation": "founded", "Tail": "Acme"}],
+    }) + "\n", encoding="utf-8")
+    output = tmp_path / "csv"
+    json2csv("hotpotqa_corpus", str(extraction), str(output), schema={}, custom=False)
+    nodes = (output / "triple_nodes_hotpotqa_corpus_from_json_without_emb.csv").read_text(encoding="utf-8")
+    edges = (output / "triple_edges_hotpotqa_corpus_from_json_without_emb.csv").read_text(encoding="utf-8")
+    missing = (output / "missing_concepts_hotpotqa_corpus_from_json.csv").read_text(encoding="utf-8")
+    assert ",event," not in nodes and "Event" not in missing
+    assert "founded" in edges and "is participated by" not in edges
+
+
 def test_extraction_progress_counts_durable_jsonl_records(tmp_path):
     extraction = tmp_path / "graph" / "kg_extraction"
     extraction.mkdir(parents=True)
@@ -262,8 +295,8 @@ def test_vn_notebook_syntax_and_default_safe_phase():
     source = "\n".join("".join(c["source"]) for c in notebook["cells"])
     for expected in ("RUN_PHASE = 'prepare'", "data/hotpotqa_vi_1k/final", "scripts/run_hotpotqa_vn.py",
                      "intfloat/multilingual-e5-small", "requirements-colab.txt",
-                     "EXPERIMENT_PROFILE = 'ab_entity_event_v3'", "hotpotqa_vn_ab_entity_event_v3",
-                     "--without-event-relations",
+                     "EXPERIMENT_PROFILE = 'no_event_pilot'", "hotpotqa_vn_no_event_pilot",
+                     "--without-event-relations", "--without-events", "--top-passages', '10'",
                      "'chunks': 109", "'penalty': 1.15",
                      "UPGRADE_CODE_FOR_RESUME = False"):
         assert expected in source

@@ -26,7 +26,8 @@ os.environ.setdefault("USE_FLAX", "0")
 
 
 VARIANTS = {"entity": {"entity"}, "entity_event": {"entity", "event"},
-            "full": {"entity", "event", "concept"}}
+            "full": {"entity", "event", "concept"},
+            "no_event": {"entity", "concept"}}
 
 
 def digest(value) -> str:

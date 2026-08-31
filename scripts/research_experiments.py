@@ -29,7 +29,7 @@ def validate_arms(arms):
             raise ValueError(f"Unknown arm fields: {set(arm) - allowed}")
         if arm.get("method") not in {"bm25", "dense", "graph", "oracle", "no_context"}:
             raise ValueError("Unknown method")
-        if arm.get("variant", "full") not in {"entity", "entity_event", "full"}:
+        if arm.get("variant", "full") not in {"entity", "entity_event", "full", "no_event"}:
             raise ValueError("Unknown graph variant")
         if arm.get("candidate_policy", "all") not in {"all", "quota", "factual"}:
             raise ValueError("Unknown candidate policy")

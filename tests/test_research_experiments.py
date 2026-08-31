@@ -55,6 +55,12 @@ def test_pruning_preserves_core_and_matched_random_edge_budget(graph):
     assert core_edges <= set(cap.edges) and core_edges <= set(random_g.edges)
 
 
+def test_no_event_variant_keeps_entities_concepts_and_passages_only(graph):
+    variant, stats = research.prepare_graph(graph, {"variant": "no_event"})
+    assert {d["type"] for _, d in variant.nodes(data=True)} <= {"entity", "concept", "passage"}
+    assert stats["concept_nodes"] > 0
+
+
 def test_weight_only_concept_edges_and_actual_ppr(graph, monkeypatch):
     g, _ = research.prepare_graph(graph, {"concept_weight": 0.25})
     assert g["n0"]["concept"][0]["weight"] == 0.25

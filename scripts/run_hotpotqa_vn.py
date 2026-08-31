@@ -37,14 +37,18 @@ def parse_args():
                         help="Gracefully checkpoint extract after N new chunks; rerun unchanged to continue")
     parser.add_argument("--embedding-model", default="intfloat/multilingual-e5-small")
     parser.add_argument("--embedding-revision")
+    parser.add_argument("--top-passages", type=int, default=5,
+                        help="Retrieved passage budget for benchmark; use 10 to report Recall@2/@5/@10")
     parser.add_argument("--model-revision", help="Tokenizer revision; server must use matching model weights")
     parser.add_argument("--context-length", type=int, default=4096)
-    parser.add_argument("--variants", nargs="+", choices=("dense", "entity", "entity_event", "full"),
+    parser.add_argument("--variants", nargs="+", choices=("dense", "entity", "entity_event", "full", "no_event"),
                         default=["dense", "entity", "entity_event", "full"])
     parser.add_argument("--retrieval-only", action="store_true")
     parser.add_argument("--no-filter-edges", action="store_true")
     parser.add_argument("--without-event-relations", action="store_true",
                         help="Ablation: keep entity/event nodes but skip event-event extraction")
+    parser.add_argument("--without-events", action="store_true",
+                        help="No-event ablation: extract Entity-Entity only; create no event nodes or edges")
     return parser.parse_args()
 
 
@@ -64,6 +68,8 @@ def construction_args(args, data_dir, graph_dir, phase):
             "--repetition-penalty", args.repetition_penalty]
     if getattr(args, "without_event_relations", False):
         command.append("--without-event-relations")
+    if getattr(args, "without_events", False):
+        command.append("--without-events")
     if phase == "extract":
         command.append("--resume-extraction")
         if getattr(args, "max_extraction_chunks", None):
@@ -97,6 +103,7 @@ def main():
         config = {"model": args.model, "model_revision": args.model_revision, "language": "vi", "chunk_size": args.chunk_size,
                   "max_new_tokens": args.max_new_tokens,
                   "repetition_penalty": args.repetition_penalty,
+                  "include_events": not args.without_events,
                   "include_event_relations": not args.without_event_relations,
                   "corpus_sha256": hashlib.sha256((data / "hotpotqa_corpus.json").read_bytes()).hexdigest(),
                   "prompts_sha256": hashlib.sha256((ROOT / "atlas_rag/llm_generator/prompt/vietnamese.py").read_bytes()).hexdigest()}
@@ -146,7 +153,8 @@ def main():
         command = [graph, "--output-dir", work / "benchmark", "--language", "vi",
                    "--embedding-model", args.embedding_model, "--embedding-device", "cpu",
                    "--model", args.model, "--base-url", args.base_url,
-                   "--context-length", args.context_length, "--variants", *args.variants]
+                   "--context-length", args.context_length, "--top-passages", args.top_passages,
+                   "--variants", *args.variants]
         for name in ("retrieval_only", "no_filter_edges"):
             if getattr(args, name):
                 command.append("--" + name.replace("_", "-"))

@@ -305,7 +305,11 @@ class KnowledgeGraphExtractor:
                 if one_to_one:
                     assert len(triples) == 3, "One-to-one triple schema must have exactly three fields: subject, relation, object"
 
-        if not self.config.include_event_relations:
+        if not self.config.include_events:
+            self.result_schema.pop("event_entity", None)
+            self.result_schema.pop("event_relation", None)
+            print("All event extraction disabled for this no-event ablation run.", flush=True)
+        elif not self.config.include_event_relations:
             self.result_schema.pop("event_relation", None)
             print("Event-relation extraction disabled for this ablation run.", flush=True)
 
@@ -403,6 +407,7 @@ class KnowledgeGraphExtractor:
     
     def run_extraction(self):
         """Run the complete knowledge graph extraction pipeline."""
+        extraction_started = time.monotonic()
         # Setup
         os.makedirs(self.config.output_directory+'/kg_extraction', exist_ok=True)
         dataset = self.load_dataset()
@@ -433,6 +438,7 @@ class KnowledgeGraphExtractor:
                 "processed_this_run": 0,
                 "total_chunks": total_chunks,
                 "complete": True,
+                "extraction_seconds": 0.0,
             }
         output_file = self.create_output_filename()
         if self.config.record:
@@ -503,6 +509,7 @@ class KnowledgeGraphExtractor:
             "processed_this_run": min(processed_this_run * batch_size, total_chunks),
             "total_chunks": total_chunks,
             "complete": batch_counter == total_batches,
+            "extraction_seconds": time.monotonic() - extraction_started,
         }
 
     def convert_json_to_csv(self):

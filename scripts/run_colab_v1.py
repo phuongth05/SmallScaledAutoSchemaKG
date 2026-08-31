@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         help="Extract entity relations and event-entity edges, but skip event-event relations.",
     )
     parser.add_argument(
+        "--without-events",
+        action="store_true",
+        help="No-event ablation: skip event-entity and event-event extraction and create no event nodes or edges.",
+    )
+    parser.add_argument(
         "--resume-extraction",
         action="store_true",
         help="Resume after valid JSONL records already saved in kg_extraction.",
@@ -154,6 +159,7 @@ def make_extractor(args: argparse.Namespace) -> object:
         max_workers=1,
         remove_doc_spaces=True,
         include_concept=not args.without_concepts,
+        include_events=not args.without_events,
         include_event_relations=not args.without_event_relations,
         record=True,
         chunk_size=args.chunk_size,
@@ -174,6 +180,7 @@ def build_summary(args: argparse.Namespace) -> dict:
         "data": str(args.data_dir / f"{args.filename_pattern}.json"),
         "output_directory": str(args.output_dir),
         "include_concepts": not args.without_concepts,
+        "include_events": not args.without_events,
         "include_event_relations": not args.without_event_relations,
         "graphml": str(graph_path),
     }
@@ -194,6 +201,28 @@ def build_summary(args: argparse.Namespace) -> dict:
                 "node_types": node_types,
             }
         )
+    extraction_dir = args.output_dir / "kg_extraction"
+    llm_calls, token_usage = 0, {}
+    for path in sorted(extraction_dir.glob("*.json")) if extraction_dir.is_dir() else []:
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                llm_calls += sum(key.endswith("_output") for key in record)
+                for key, usage in record.items():
+                    if not key.endswith("_usage") or not isinstance(usage, dict):
+                        continue
+                    for name, value in usage.items():
+                        if isinstance(value, (int, float)):
+                            token_usage[name] = token_usage.get(name, 0) + value
+    progress_path = args.output_dir / "extraction_progress.json"
+    summary["extraction"] = {
+        "llm_calls": llm_calls,
+        "token_usage": token_usage,
+        "runtime_seconds": (json.loads(progress_path.read_text(encoding="utf-8")).get("extraction_seconds")
+                            if progress_path.exists() else None),
+    }
     return summary
 
 
@@ -212,11 +241,20 @@ def main() -> None:
         raise ValueError("--max-extraction-chunks must be positive")
     if args.repetition_penalty <= 0:
         raise ValueError("--repetition-penalty must be positive")
+    if args.without_events and args.without_event_relations:
+        raise ValueError("--without-events already disables event-event extraction; do not also pass --without-event-relations")
     if args.overwrite and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     progress = inspect_extraction_progress(args.output_dir, args.filename_pattern)
+    existing_progress_path = args.output_dir / "extraction_progress.json"
+    if existing_progress_path.exists():
+        # Inspection is authoritative for durable record counts, but retain runtime
+        # measurements from a prior extract-only invocation when building later.
+        existing_progress = json.loads(existing_progress_path.read_text(encoding="utf-8"))
+        progress.update({key: value for key, value in existing_progress.items()
+                         if key not in {"completed_chunks", "files", "updated_at_utc"}})
     if progress["completed_chunks"] and not args.resume_extraction and args.phase in {"extract", "full"}:
         raise FileExistsError(
             "Partial extraction exists. Pass --resume-extraction to continue without duplicating chunks."

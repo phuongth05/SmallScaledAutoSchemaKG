@@ -291,9 +291,11 @@ def json2csv(dataset, data_dir, output_dir, schema, custom, test=False):
                         csv_writer_node_text.writerow([text_hash_id, original_text, "Text"])
 
                     file_id = str(data["id"])
-                    entity_relation_dict = data["entity_relation_dict"]
-                    event_entity_relation_dict = data["event_entity_dict"]
-                    event_relation_dict = data["event_relation_dict"]
+                    entity_relation_dict = data.get("entity_relation_dict", [])
+                    # No-event extraction records deliberately omit these keys.  Do
+                    # not synthesize event nodes/edges when converting them to CSV.
+                    event_entity_relation_dict = data.get("event_entity_dict", [])
+                    event_relation_dict = data.get("event_relation_dict", [])
 
                     # Process entity triples
                     entity_triples = []

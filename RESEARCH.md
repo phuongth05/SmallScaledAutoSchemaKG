@@ -33,6 +33,7 @@ All definitions live in [research/experiments.json](research/experiments.json).
 | `entity` | Entity + passage induced subgraph |
 | `entity_event` | Entity + event + passage |
 | `full` | Full graph, unchanged retrieval baseline |
+| `no_event` | Entity + concept subgraph; use with a graph constructed using `--without-events` for the true construction-cost ablation |
 | `full_no_filter` | QA-only control: Full without LLM edge filtering |
 | `quota_20_10` | 20 factual + 10 concept candidate edges; backfill if a group is undersupplied |
 | `factual_seeds` | Search only factual candidates; concepts remain available during propagation |

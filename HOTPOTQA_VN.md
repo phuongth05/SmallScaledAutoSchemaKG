@@ -197,6 +197,39 @@ bộ VN này.
 
 ## Kiểm thử
 
+## Full vs No-Event pilot
+
+`--without-event-relations` is **not** a no-event mode: it still runs Stage 2
+Event--Entity extraction and creates event nodes.  For the actual no-event arm,
+use `--without-events`, which retains only Entity--Entity extraction and concept
+induction.  Use two new work directories; their construction outputs are not
+interchangeable.
+
+Run these phases for each arm with the same prepared input, model revision,
+sampling seed and `--max-extraction-chunks 30` (increase only after the pilot):
+
+```bash
+# Prepare the same 20--50-query pilot manifest in each new work directory.
+python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --max-questions 30 --sampling random --seed 42
+python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --max-questions 30 --sampling random --seed 42
+
+# Full: Entity + Event + Concept
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase extract --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --max-extraction-chunks 30
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase benchmark --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --variants full --top-passages 10
+
+# No-Event: Entity + Concept (no Event--Entity or Event--Event calls/nodes/edges)
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase extract --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --max-extraction-chunks 30 --without-events
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --without-events
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase benchmark --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --variants no_event --top-passages 10
+
+python scripts/report_no_event_ablation.py /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot
+```
+
+For the notebook, select `full_pilot`, finish all phases, then select
+`no_event_pilot` and repeat.  The phase cell supplies `--without-events`,
+`--variants no_event`, and `--top-passages 10` automatically.
+
 ```bash
 python -X utf8 -m pytest tests/test_hotpotqa_vn.py tests/test_hotpotqa_v2.py -q
 ```
