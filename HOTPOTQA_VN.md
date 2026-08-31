@@ -210,8 +210,8 @@ sampling seed and `--max-extraction-chunks 30` (increase only after the pilot):
 
 ```bash
 # Prepare the same 20--50-query pilot manifest in each new work directory.
-python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --max-questions 30 --sampling random --seed 42
-python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --max-questions 30 --sampling random --seed 42
+python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot_v2 --max-questions 30 --sampling random --seed 42
+python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/Prepare-data-HotpotQA-VN/data/hotpotqa_vi_1k/final --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot_v2 --max-questions 30 --sampling random --seed 42
 
 # Full: Entity + Event + Concept
 python -X utf8 -u scripts/run_hotpotqa_vn.py --phase extract --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --max-extraction-chunks 30

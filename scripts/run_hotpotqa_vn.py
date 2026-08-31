@@ -110,8 +110,16 @@ def main():
                   "corpus_sha256": hashlib.sha256((data / "hotpotqa_corpus.json").read_bytes()).hexdigest(),
                   "prompts_sha256": hashlib.sha256((ROOT / "atlas_rag/llm_generator/prompt/vietnamese.py").read_bytes()).hexdigest()}
         config_file = graph / "vn_construction_config.json"
-        if config_file.exists() and json.loads(config_file.read_text(encoding="utf-8")) != config:
-            raise ValueError("Construction configuration changed; use a NEW work directory")
+        if config_file.exists():
+            previous = json.loads(config_file.read_text(encoding="utf-8"))
+            if previous != config:
+                changed = {key: {"saved": previous.get(key), "requested": config.get(key)}
+                           for key in sorted(set(previous) | set(config))
+                           if previous.get(key) != config.get(key)}
+                raise ValueError(
+                    "Construction configuration changed; use a NEW work directory. "
+                    f"Differences: {json.dumps(changed, ensure_ascii=False)}"
+                )
         config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
     if args.phase in {"extract", "all"}:
         marker = graph / "vn_extraction_complete.json"
