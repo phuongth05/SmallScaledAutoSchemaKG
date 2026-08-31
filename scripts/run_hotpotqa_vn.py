@@ -49,6 +49,8 @@ def parse_args():
                         help="Ablation: keep entity/event nodes but skip event-event extraction")
     parser.add_argument("--without-events", action="store_true",
                         help="No-event ablation: extract Entity-Entity only; create no event nodes or edges")
+    parser.add_argument("--allow-partial-build", action="store_true",
+                        help="Pilot only: build/benchmark after partial extraction while retaining all corpus passages")
     return parser.parse_args()
 
 
@@ -132,7 +134,13 @@ def main():
                 return
     if args.phase in {"build", "all"}:
         if not (graph / "vn_extraction_complete.json").exists():
-            raise RuntimeError("Complete the extract phase before build")
+            if not args.allow_partial_build:
+                raise RuntimeError("Complete the extract phase before build, or explicitly pass --allow-partial-build for a pilot")
+            progress_file = graph / "extraction_progress.json"
+            progress = json.loads(progress_file.read_text(encoding="utf-8")) if progress_file.is_file() else {}
+            if not progress.get("completed_chunks"):
+                raise RuntimeError("Partial build requires at least one durable extracted chunk")
+            print("PARTIAL PILOT BUILD: all corpus passages are retained; only extracted chunks have KG edges.", flush=True)
         marker = graph / "vn_build_complete.json"
         if not marker.exists():
             call_script("run_colab_v1.py", construction_args(args, data, graph, "build"))

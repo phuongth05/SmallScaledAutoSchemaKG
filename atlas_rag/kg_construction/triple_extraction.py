@@ -7,6 +7,7 @@ import re
 import json
 import os
 import argparse
+import csv
 from datetime import datetime
 import time
 from typing import List, Dict, Any, Tuple
@@ -19,7 +20,7 @@ import json_repair
 import copy
 
 from atlas_rag.llm_generator import LLMGenerator
-from atlas_rag.kg_construction.utils.json_processing.json_to_csv import json2csv
+from atlas_rag.kg_construction.utils.json_processing.json_to_csv import json2csv, compute_hash_id, remove_NUL
 from atlas_rag.kg_construction.concept_generation import generate_concept
 from atlas_rag.kg_construction.utils.csv_processing.merge_csv import merge_csv_files
 from atlas_rag.kg_construction.utils.csv_processing.csv_to_graphml import csvs_to_graphml, csvs_to_temp_graphml
@@ -520,11 +521,44 @@ class KnowledgeGraphExtractor:
             schema = self.result_schema,
             custom = self.custom_schema != None
         )
+        self.ensure_all_source_passages()
         csvs_to_temp_graphml(
             triple_node_file=f"{self.config.output_directory}/triples_csv/triple_nodes_{self.config.filename_pattern}_from_json_without_emb.csv",
             triple_edge_file=f"{self.config.output_directory}/triples_csv/triple_edges_{self.config.filename_pattern}_from_json_without_emb.csv",
             config = self.config
         )
+
+    def ensure_all_source_passages(self):
+        """Add every source document as a passage, including unextracted pilot docs.
+
+        Partial extraction is a construction-cost smoke test, not a restricted
+        retrieval corpus: documents outside the extracted chunk budget remain
+        available to dense retrieval and evaluation, simply without KG edges.
+        """
+        source = Path(self.config.data_directory) / f"{self.config.filename_pattern}.json"
+        text_nodes = Path(self.config.output_directory) / "triples_csv" / (
+            f"text_nodes_{self.config.filename_pattern}_from_json.csv"
+        )
+        if not source.is_file() or not text_nodes.is_file():
+            return
+        documents = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(documents, list):
+            return
+        with text_nodes.open(encoding="utf-8", newline="") as stream:
+            existing = {row["text_id:ID"] for row in csv.DictReader(stream)}
+        additions = []
+        for document in documents:
+            text = remove_NUL(str(document.get("text", "")))
+            if not text:
+                continue
+            text_id = compute_hash_id(text)
+            if text_id not in existing:
+                existing.add(text_id)
+                additions.append((text_id, text, "Text"))
+        if additions:
+            with text_nodes.open("a", encoding="utf-8", newline="") as stream:
+                csv.writer(stream).writerows(additions)
+        print(f"Ensured {len(existing)} passage nodes ({len(additions)} added from source corpus).", flush=True)
     
     def generate_concept_csv_temp(self, batch_size: int = None, **kwargs):
         if self.config.benchmark and self.config.record:

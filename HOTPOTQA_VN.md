@@ -215,12 +215,12 @@ python -X utf8 scripts/run_hotpotqa_vn.py --phase prepare --source-dir /content/
 
 # Full: Entity + Event + Concept
 python -X utf8 -u scripts/run_hotpotqa_vn.py --phase extract --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --max-extraction-chunks 30
-python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --allow-partial-build
 python -X utf8 -u scripts/run_hotpotqa_vn.py --phase benchmark --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --variants full --top-passages 10
 
 # No-Event: Entity + Concept (no Event--Entity or Event--Event calls/nodes/edges)
 python -X utf8 -u scripts/run_hotpotqa_vn.py --phase extract --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --max-extraction-chunks 30 --without-events
-python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --without-events
+python -X utf8 -u scripts/run_hotpotqa_vn.py --phase build --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --without-events --allow-partial-build
 python -X utf8 -u scripts/run_hotpotqa_vn.py --phase benchmark --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot --model Qwen/Qwen3.5-2B --base-url http://127.0.0.1:8000/v1 --variants no_event --top-passages 10
 
 python scripts/report_no_event_ablation.py /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_full_pilot /content/drive/MyDrive/AutoSchemaKG/hotpotqa_vn_no_event_pilot
