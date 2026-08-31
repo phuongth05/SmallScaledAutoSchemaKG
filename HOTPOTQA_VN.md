@@ -32,7 +32,7 @@ Nguồn: [Prepare-data-HotpotQA-VN](https://github.com/chichic21039/Prepare-data
 
 File: `colab/AutoSchemaKG_HotpotQA_VN.ipynb`.
 
-[Mở notebook branch research trên Colab](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/codex/research-concept-retrieval/colab/AutoSchemaKG_HotpotQA_VN.ipynb)
+[Mở notebook No-Event experiment trên Colab](https://colab.research.google.com/github/phuongth05/SmallScaledAutoSchemaKG/blob/experiment/no-event-small-model/colab/AutoSchemaKG_HotpotQA_VN.ipynb)
 
 Notebook clone cả code lẫn repo dữ liệu, ghim revision, dùng hai môi trường
 riêng cho CPU embedding/KG client và GPU vLLM, lưu kết quả vào Drive.
