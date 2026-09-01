@@ -112,6 +112,37 @@ def write_extraction_progress(output_dir: Path, progress: dict) -> None:
     temporary.replace(target)
 
 
+def load_build_progress(output_dir: Path) -> dict:
+    target = output_dir / "build_progress.json"
+    if not target.is_file():
+        return {"completed_stages": []}
+    progress = json.loads(target.read_text(encoding="utf-8"))
+    if not isinstance(progress.get("completed_stages"), list):
+        raise ValueError(f"Invalid build progress file: {target}")
+    return progress
+
+
+def write_build_progress(output_dir: Path, completed_stages: list[str]) -> None:
+    target = output_dir / "build_progress.json"
+    payload = {
+        "completed_stages": completed_stages,
+        "complete": "graphml" in completed_stages,
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(target)
+
+
+def mark_build_stage(output_dir: Path, progress: dict, stage: str) -> None:
+    stages = list(progress.get("completed_stages", []))
+    if stage not in stages:
+        stages.append(stage)
+    progress["completed_stages"] = stages
+    write_build_progress(output_dir, stages)
+    print(f"Build checkpoint saved: {stage}", flush=True)
+
+
 def ensure_safe_output(output_dir: Path) -> Path:
     output_dir = output_dir.expanduser().resolve()
     if output_dir == Path(output_dir.anchor) or len(output_dir.parts) < 3:
@@ -237,11 +268,39 @@ def main() -> None:
         progress.update(extraction_result or {})
         write_extraction_progress(args.output_dir, progress)
     if args.phase in {"build", "full"}:
-        extractor.convert_json_to_csv()
+        build_progress = load_build_progress(args.output_dir)
+        completed_stages = set(build_progress["completed_stages"])
+        triple_csv = (
+            args.output_dir / "triples_csv"
+            / f"triple_nodes_{args.filename_pattern}_from_json_without_emb.csv"
+        )
+        if "json_to_csv" not in completed_stages or not triple_csv.is_file():
+            extractor.convert_json_to_csv()
+            mark_build_stage(args.output_dir, build_progress, "json_to_csv")
+        else:
+            print("Resuming build: JSON-to-CSV stage already complete.", flush=True)
         if not args.without_concepts:
-            extractor.generate_concept_csv_temp(language=args.language)
-            extractor.create_concept_csv()
-        extractor.convert_to_graphml()
+            concept_output = args.output_dir / "concepts" / "concept_shard_0.csv"
+            if "concept_generation" not in completed_stages or not concept_output.is_file():
+                extractor.generate_concept_csv_temp(language=args.language)
+                mark_build_stage(args.output_dir, build_progress, "concept_generation")
+            else:
+                print("Resuming build: concept-generation stage already complete.", flush=True)
+            concept_edges = (
+                args.output_dir / "concept_csv"
+                / f"triple_edges_{args.filename_pattern}_from_json_with_concept.csv"
+            )
+            if "concept_csv" not in completed_stages or not concept_edges.is_file():
+                extractor.create_concept_csv()
+                mark_build_stage(args.output_dir, build_progress, "concept_csv")
+            else:
+                print("Resuming build: concept-CSV stage already complete.", flush=True)
+        graphml = args.output_dir / "kg_graphml" / f"{args.filename_pattern}_graph.graphml"
+        if "graphml" not in completed_stages or not graphml.is_file():
+            extractor.convert_to_graphml()
+            mark_build_stage(args.output_dir, build_progress, "graphml")
+        else:
+            print("Resuming build: GraphML stage already complete.", flush=True)
 
     summary = build_summary(args)
     summary_path = args.output_dir / "run_summary.json"

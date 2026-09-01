@@ -18,6 +18,7 @@ from hotpotqa_benchmark import answer_scores, embedding_inputs, load_bundle, ret
 from run_hotpotqa_vn import construction_args
 from audit_vn_extraction_pilot import load_records, make_audit, make_concentration, parse_log
 from run_colab_v1 import inspect_extraction_progress, write_extraction_progress
+from run_colab_v1 import load_build_progress, mark_build_stage
 
 validation_spec = importlib.util.spec_from_file_location(
     "extraction_validation",
@@ -238,6 +239,17 @@ def test_json_to_csv_accepts_intentionally_disabled_event_relation_stage(tmp_pat
     assert (output / "triple_nodes_hotpotqa_corpus_from_json_without_emb.csv").is_file()
     edges = (output / "triple_edges_hotpotqa_corpus_from_json_without_emb.csv").read_text(encoding="utf-8")
     assert "thành lập" in edges
+
+
+def test_build_progress_is_atomic_and_monotonic(tmp_path):
+    progress = load_build_progress(tmp_path)
+    assert progress == {"completed_stages": []}
+    mark_build_stage(tmp_path, progress, "json_to_csv")
+    mark_build_stage(tmp_path, progress, "json_to_csv")
+    mark_build_stage(tmp_path, progress, "concept_generation")
+    saved = load_build_progress(tmp_path)
+    assert saved["completed_stages"] == ["json_to_csv", "concept_generation"]
+    assert saved["complete"] is False
 
 
 def test_extraction_progress_rejects_corrupt_tail(tmp_path):

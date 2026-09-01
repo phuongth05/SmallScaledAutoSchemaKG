@@ -10,6 +10,9 @@ from atlas_rag.kg_construction.triple_config import ProcessingConfig
 from atlas_rag.kg_construction.utils.csv_processing.csv_to_graphml import get_node_id
 from atlas_rag.llm_generator.prompt.triple_extraction_prompt import CONCEPT_INSTRUCTIONS
 import pickle
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
@@ -45,7 +48,7 @@ def convert_attribute(value):
 def clean_text(text):
     # remove NUL as well
     
-    new_text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ").replace("\v", " ").replace("\f", " ").replace("\b", " ").replace("\a", " ").replace("\e", " ").replace(";", ",")
+    new_text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ").replace("\v", " ").replace("\f", " ").replace("\b", " ").replace("\a", " ").replace("\\e", " ").replace(";", ",")
     new_text = new_text.replace("\x00", "")
     new_text = re.sub(r'\s+', ' ', new_text).strip()
 
@@ -119,6 +122,74 @@ def load_data_with_shard(input_file, shard_idx, num_shards):
     
     return data[start_idx:end_idx]
 
+
+CONCEPT_CSV_HEADER = ["node", "conceptualized_node", "node_type"]
+
+
+def load_concept_checkpoint(output_file):
+    """Return durable concept rows and repair an interrupted final CSV row.
+
+    Concept output is flushed after every completed LLM batch. A Colab
+    disconnect can therefore leave, at worst, an incomplete final CSV row.
+    Earlier malformed rows indicate a genuinely corrupt checkpoint and are
+    rejected instead of silently skipping work.
+    """
+    output_file = Path(output_file)
+    if not output_file.is_file() or output_file.stat().st_size == 0:
+        return set()
+
+    with output_file.open("r", newline="", encoding="utf-8") as stream:
+        rows = list(csv.reader(stream))
+    if not rows:
+        return set()
+    if rows[0] != CONCEPT_CSV_HEADER:
+        raise ValueError(f"Invalid concept checkpoint header: {output_file}")
+
+    valid_rows = [CONCEPT_CSV_HEADER]
+    completed = set()
+    repaired = False
+    for index, row in enumerate(rows[1:], 1):
+        valid = (
+            len(row) == 3
+            and bool(row[0].strip())
+            and row[2].strip().lower() in {"entity", "event", "relation"}
+        )
+        if not valid:
+            if index != len(rows) - 1:
+                raise ValueError(
+                    f"Corrupt concept checkpoint row {index + 1}: {output_file}"
+                )
+            repaired = True
+            continue
+        key = (row[0], row[2].strip().lower())
+        if key in completed:
+            repaired = True
+            continue
+        completed.add(key)
+        valid_rows.append(row)
+
+    if repaired:
+        temporary = output_file.with_suffix(output_file.suffix + ".repair.tmp")
+        with temporary.open("w", newline="", encoding="utf-8") as stream:
+            csv.writer(stream).writerows(valid_rows)
+        temporary.replace(output_file)
+        print(f"Repaired trailing/duplicate concept checkpoint rows: {output_file}", flush=True)
+    return completed
+
+
+def write_concept_progress(output_folder, shard, total, completed, complete=False):
+    target = Path(output_folder) / f"concept_progress_shard_{shard}.json"
+    payload = {
+        "shard": shard,
+        "completed_nodes": completed,
+        "total_nodes": total,
+        "complete": complete,
+        "updated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(target)
+
 def generate_concept(model: LLMGenerator,
             input_file = 'processed_data/triples_csv', 
             output_folder = 'processed_data/triples_conceptualized', 
@@ -157,10 +228,33 @@ def generate_concept(model: LLMGenerator,
         shard_idx=shard,
         num_shards=num_shards
     )
+
+    output_file = Path(output_folder) / f"{output_file.rsplit('.', 1)[0]}_shard_{shard}.csv"
+    completed_nodes = load_concept_checkpoint(output_file)
+    input_keys = {(row[0], row[1].strip().lower()) for row in all_missing_nodes}
+    stale_nodes = completed_nodes - input_keys
+    if stale_nodes:
+        raise ValueError(
+            f"Concept checkpoint contains {len(stale_nodes)} nodes absent from current input; "
+            "refusing to mix construction configurations"
+        )
+    pending_nodes = [
+        row for row in all_missing_nodes
+        if (row[0], row[1].strip().lower()) not in completed_nodes
+    ]
+    if completed_nodes:
+        print(
+            f"Resuming concept generation after {len(completed_nodes)}/{len(input_keys)} durable nodes.",
+            flush=True,
+        )
+    write_concept_progress(
+        output_folder, shard, len(input_keys), len(completed_nodes),
+        complete=len(completed_nodes) == len(input_keys),
+    )
         
-    batched_events = build_batched_events(all_missing_nodes, batch_size)
-    batched_entities = build_batched_entities(all_missing_nodes, batch_size)
-    batched_relations = build_batched_relations(all_missing_nodes, batch_size)
+    batched_events = build_batched_events(pending_nodes, batch_size)
+    batched_entities = build_batched_entities(pending_nodes, batch_size)
+    batched_relations = build_batched_relations(pending_nodes, batch_size)
     
     all_batches = []
     all_batches.extend(('event', batch) for batch in batched_events)
@@ -172,10 +266,12 @@ def generate_concept(model: LLMGenerator,
 
 
     
-    output_file = output_folder + f"/{output_file.rsplit('.', 1)[0]}_shard_{shard}.csv"
-    with open(output_file, "w", newline='') as file:
+    new_file = not output_file.exists() or output_file.stat().st_size == 0
+    with output_file.open("a", newline='', encoding="utf-8") as file:
         csv_writer = csv.writer(file)
-        csv_writer.writerow(["node", "conceptualized_node", "node_type"])
+        if new_file:
+            csv_writer.writerow(CONCEPT_CSV_HEADER)
+            file.flush()
 
         # for batch_type, batch in tqdm(all_batches, total=total_batches, desc="Generating concepts"):
         # don't use tqdm for now
@@ -248,6 +344,19 @@ def generate_concept(model: LLMGenerator,
                     logging.info(f"Usage log: Node {node}, completion_usage: {usages[i]}")
                 csv_writer.writerow([node, ", ".join(answer), node_type])
                 file.flush()
+                completed_nodes.add((node, node_type))
+            write_concept_progress(
+                output_folder, shard, len(input_keys), len(completed_nodes),
+                complete=len(completed_nodes) == len(input_keys),
+            )
+    if len(completed_nodes) != len(input_keys):
+        raise RuntimeError(
+            f"Concept generation returned incomplete output: "
+            f"{len(completed_nodes)}/{len(input_keys)} nodes"
+        )
+    write_concept_progress(
+        output_folder, shard, len(input_keys), len(completed_nodes), complete=True
+    )
     # count unique conceptualized nodes
     conceptualized_nodes = []
 
@@ -255,7 +364,7 @@ def generate_concept(model: LLMGenerator,
     conceptualized_entities = []
     conceptualized_relations = []
 
-    with open(output_file, "r") as file:
+    with output_file.open("r", newline="", encoding="utf-8") as file:
         reader = csv.reader(file)
         next(reader)
         for row in reader:
