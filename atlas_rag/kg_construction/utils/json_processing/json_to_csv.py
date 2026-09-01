@@ -20,7 +20,7 @@ def compute_hash_id(text):
 def clean_text(text):
     # remove NUL as well
     
-    new_text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ").replace("\v", " ").replace("\f", " ").replace("\b", " ").replace("\a", " ").replace("\e", " ").replace(";", ",")
+    new_text = text.replace("\n", " ").replace("\r", " ").replace("\t", " ").replace("\v", " ").replace("\f", " ").replace("\b", " ").replace("\a", " ").replace("\\e", " ").replace(";", ",")
     new_text = new_text.replace("\x00", "")
     new_text = re.sub(r'\s+', ' ', new_text).strip()
 
@@ -28,6 +28,14 @@ def clean_text(text):
 
 def remove_NUL(text):
     return text.replace("\x00", "")
+
+
+def stage_items(data, schema, stage):
+    """Return a stage output, allowing stages intentionally disabled by schema."""
+    key = f"{stage}_dict"
+    if stage not in schema:
+        return data.get(key, [])
+    return data[key]
 
 def custom_schema_json_2_csv(dataset, data_dir, output_dir, schema):
     visited_nodes = set()
@@ -71,7 +79,7 @@ def custom_schema_json_2_csv(dataset, data_dir, output_dir, schema):
         # Process each file
         for file_dir in tqdm(file_dir_list):
             print("Processing file for file ids: ", file_dir)
-            with open(os.path.join(data_dir, file_dir), "r") as jsonfile:
+            with open(os.path.join(data_dir, file_dir), "r", encoding="utf-8") as jsonfile:
                 for line in jsonfile:
                     data = json.loads(line.strip())
                     original_text = data["original_text"]
@@ -273,7 +281,7 @@ def json2csv(dataset, data_dir, output_dir, schema, custom, test=False):
         # Process each file
         for file_dir in tqdm(file_dir_list):
             print("Processing file for file ids: ", file_dir)
-            with open(os.path.join(data_dir, file_dir), "r") as jsonfile:
+            with open(os.path.join(data_dir, file_dir), "r", encoding="utf-8") as jsonfile:
                 for line in jsonfile:
                     data = json.loads(line.strip())
                     original_text = data["original_text"]
@@ -291,9 +299,9 @@ def json2csv(dataset, data_dir, output_dir, schema, custom, test=False):
                         csv_writer_node_text.writerow([text_hash_id, original_text, "Text"])
 
                     file_id = str(data["id"])
-                    entity_relation_dict = data["entity_relation_dict"]
-                    event_entity_relation_dict = data["event_entity_dict"]
-                    event_relation_dict = data["event_relation_dict"]
+                    entity_relation_dict = stage_items(data, schema, "entity_relation")
+                    event_entity_relation_dict = stage_items(data, schema, "event_entity")
+                    event_relation_dict = stage_items(data, schema, "event_relation")
 
                     # Process entity triples
                     entity_triples = []

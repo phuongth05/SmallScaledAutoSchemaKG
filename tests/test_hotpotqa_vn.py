@@ -27,6 +27,13 @@ validation_module = importlib.util.module_from_spec(validation_spec)
 validation_spec.loader.exec_module(validation_module)
 sanitize_vietnamese_event_relations = validation_module.sanitize_vietnamese_event_relations
 
+json_to_csv_spec = importlib.util.spec_from_file_location(
+    "json_to_csv",
+    ROOT / "atlas_rag/kg_construction/utils/json_processing/json_to_csv.py",
+)
+json_to_csv_module = importlib.util.module_from_spec(json_to_csv_spec)
+json_to_csv_spec.loader.exec_module(json_to_csv_module)
+
 
 @pytest.fixture
 def final_dir(tmp_path):
@@ -211,6 +218,26 @@ def test_vietnamese_event_relation_guard_keeps_only_explicit_grounded_events():
     assert {item["reason"] for item in dropped} == {
         "relation_not_explicit_in_source", "endpoint_not_event_clause", "self_loop"
     }
+
+
+def test_json_to_csv_accepts_intentionally_disabled_event_relation_stage(tmp_path):
+    extraction = tmp_path / "extraction"
+    output = tmp_path / "csv"
+    extraction.mkdir()
+    record = {
+        "id": "doc-1",
+        "original_text": "A thành lập B.",
+        "entity_relation_dict": [{"Head": "A", "Relation": "thành lập", "Tail": "B"}],
+        "event_entity_dict": [{"Event": "A thành lập B", "Entity": ["A", "B"]}],
+    }
+    (extraction / "Qwen_hotpotqa_corpus_output.json").write_text(
+        json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+    schema = {"entity_relation": {}, "event_entity": {}}
+    json_to_csv_module.json2csv(
+        "hotpotqa_corpus", str(extraction), str(output), schema, custom=False)
+    assert (output / "triple_nodes_hotpotqa_corpus_from_json_without_emb.csv").is_file()
+    edges = (output / "triple_edges_hotpotqa_corpus_from_json_without_emb.csv").read_text(encoding="utf-8")
+    assert "thành lập" in edges
 
 
 def test_extraction_progress_rejects_corrupt_tail(tmp_path):
