@@ -263,7 +263,7 @@ def test_vn_notebook_syntax_and_default_safe_phase():
     for expected in ("RUN_PHASE = 'prepare'", "data/hotpotqa_vi_1k/final", "scripts/run_hotpotqa_vn.py",
                      "intfloat/multilingual-e5-small", "requirements-colab.txt",
                      "EXPERIMENT_PROFILE = 'ab_entity_event_v3'", "hotpotqa_vn_ab_entity_event_v3",
-                     "--without-event-relations",
+                     "--without-event-relations", "command += ['--repetition-penalty'",
                      "'chunks': 109", "'penalty': 1.15",
                      "UPGRADE_CODE_FOR_RESUME = False"):
         assert expected in source
