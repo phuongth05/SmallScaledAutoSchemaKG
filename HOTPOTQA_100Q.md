@@ -50,6 +50,14 @@ python -u scripts/run_hotpotqa_en.py --phase report \
   --work-dir /content/drive/MyDrive/AutoSchemaKG/hotpotqa_en_100q
 ```
 
+Build is also resumable. Completed JSON-to-CSV, concept generation, merged
+concept CSV and GraphML stages are recorded in `graph/build_progress.json`.
+Concept rows and their progress are flushed to Drive after every completed LLM
+batch. If interrupted, stop the child process and rerun the identical build
+command until `graph/build_complete.json` exists.
+An experiment pinned to the earlier non-resumable notebook records the old
+commit in `code_upgrade_history` before adopting this build-resume update.
+
 The benchmark checkpoints every successful `(method, question)`. Rerun the
 same benchmark command after restarting vLLM to resume. The strict `error`
 policy is recommended for reportable results; it never silently replaces a
