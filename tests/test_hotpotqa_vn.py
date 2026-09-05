@@ -306,7 +306,8 @@ def test_vn_notebook_syntax_and_default_safe_phase():
                      "'chunks': 109", "'penalty': 1.15",
                      "UPGRADE_CODE_FOR_RESUME = False", "LLM_BACKEND", "NEEDS_LOCAL_LLM",
                      "scripts/check_remote_llm.py", "--llm-backend",
-                     "start_new_session=True", "SAFE TO DISCONNECT"):
+                     "start_new_session=True", "SAFE TO DISCONNECT",
+                     "shutil.which('nvidia-smi')"):
         assert expected in source
     for cell in notebook["cells"]:
         if cell["cell_type"] == "code":
