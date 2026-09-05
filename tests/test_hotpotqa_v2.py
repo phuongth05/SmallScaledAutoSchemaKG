@@ -185,7 +185,7 @@ def test_failed_answer_resumes_only_missing_question(tmp_path, graph, monkeypatc
     args.variants = ["dense", "entity"]
     calls = []
     class Reader:
-        def __init__(self, args):
+        def __init__(self, args, connection=None):
             pass
         def answer(self, question, passages):
             calls.append(question)
@@ -194,6 +194,7 @@ def test_failed_answer_resumes_only_missing_question(tmp_path, graph, monkeypatc
             return "yes", {}
     monkeypatch.setattr(runner, "CachedEncoder", FixtureEncoder)
     monkeypatch.setattr(runner, "LocalReader", Reader)
+    monkeypatch.setattr(runner, "check_llm_health", lambda *a: ["fixture"])
     with pytest.raises(ConnectionError):
         runner.run(args)
     assert len(list((tmp_path / "run/results").rglob("*.json"))) == 1

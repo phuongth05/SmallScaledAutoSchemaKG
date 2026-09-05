@@ -121,7 +121,8 @@ def test_v2_checkpoints_persist_explicit_fallback_and_resume(tmp_path, graph, mo
     args.filter_failure_policy = "dense"
     args.base_url = "[local](http://127.0.0.1:8000/v1)"
     monkeypatch.setattr(runner, "CachedEncoder", FixtureEncoder)
-    monkeypatch.setattr(runner, "LocalReader", lambda args: make_reader([BAD_RESPONSE, BAD_RESPONSE], "dense"))
+    monkeypatch.setattr(runner, "check_llm_health", lambda *a: ["fixture"])
+    monkeypatch.setattr(runner, "LocalReader", lambda *a: make_reader([BAD_RESPONSE, BAD_RESPONSE], "dense"))
     result = runner.run(args)
     counts = result["methods"]["entity"]["diagnostics"]
     assert counts["filter_error_fallback_questions"] == 1
@@ -137,7 +138,8 @@ def test_strict_failure_saves_raw_diagnostics_without_checkpoint(tmp_path, graph
     args = args_for(write_bundle(tmp_path / "bundle.zip", graph), tmp_path / "run")
     args.variants, args.no_filter_edges = ["entity"], False
     monkeypatch.setattr(runner, "CachedEncoder", FixtureEncoder)
-    monkeypatch.setattr(runner, "LocalReader", lambda args: make_reader([BAD_RESPONSE, BAD_RESPONSE]))
+    monkeypatch.setattr(runner, "check_llm_health", lambda *a: ["fixture"])
+    monkeypatch.setattr(runner, "LocalReader", lambda *a: make_reader([BAD_RESPONSE, BAD_RESPONSE]))
     with pytest.raises(utils.FilterSelectionError):
         runner.run(args)
     error = json.loads((tmp_path / "run/last_error.json").read_text(encoding="utf-8"))

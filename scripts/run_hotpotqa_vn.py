@@ -1,6 +1,7 @@
 """Run staged AutoSchemaKG experiments on HotpotQA-VI-1K final/.
 
-prepare is CPU-only. extract/build/all require a running local Qwen server.
+prepare is CPU-only. LLM phases support local Qwen or an authenticated remote
+OpenAI-compatible vLLM endpoint.
 benchmark reuses the Vietnamese graph; it never accepts an English graph as a
 substitute. Run benchmark again unchanged to resume per-question checkpoints.
 """
@@ -16,6 +17,7 @@ import sys
 from pathlib import Path
 
 from prepare_hotpotqa_vn import prepare
+from llm_endpoint import check_llm_health, resolve_llm_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,6 +32,8 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--model", default="Qwen/Qwen3.5-2B")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
+    parser.add_argument("--llm-backend", choices=("local", "remote"), type=str.lower,
+                        default=os.environ.get("LLM_BACKEND", "local").lower())
     parser.add_argument("--chunk-size", type=int, default=3000, help="Characters, not tokens")
     parser.add_argument("--max-new-tokens", type=int, default=1536)
     parser.add_argument("--repetition-penalty", type=float, default=1.05)
@@ -62,6 +66,8 @@ def construction_args(args, data_dir, graph_dir, phase):
             "--model", args.model, "--base-url", args.base_url,
             "--chunk-size", args.chunk_size, "--max-new-tokens", args.max_new_tokens,
             "--repetition-penalty", args.repetition_penalty]
+    if getattr(args, "llm_backend", "local") != "local":
+        command += ["--llm-backend", args.llm_backend]
     if getattr(args, "without_event_relations", False):
         command.append("--without-event-relations")
     if phase == "extract":
@@ -75,6 +81,23 @@ def main():
     args = parse_args()
     work = args.work_dir.resolve()
     data, graph = work / "input", work / "graph"
+    extraction_pending = args.phase in {"extract", "all"} and not (
+        graph / "vn_extraction_complete.json"
+    ).is_file()
+    build_pending = args.phase in {"build", "all"} and not (
+        graph / "vn_build_complete.json"
+    ).is_file()
+    benchmark_needs_llm = args.phase in {"benchmark", "all"} and (
+        not args.retrieval_only
+        or (not args.no_filter_edges and any(name != "dense" for name in args.variants))
+    )
+    needs_llm = extraction_pending or build_pending or benchmark_needs_llm
+    if needs_llm and args.llm_backend == "remote":
+        connection = resolve_llm_connection(args.llm_backend, args.base_url)
+        # Fail before prepare/provenance/config/checkpoint writes.
+        check_llm_health(connection, args.model)
+        args.base_url = connection.base_url
+        print(f"{connection.backend.capitalize()} LLM health check passed.", flush=True)
     if args.phase in {"prepare", "all"}:
         if args.source_dir is None:
             raise ValueError("--source-dir is required for prepare/all")
@@ -147,6 +170,8 @@ def main():
                    "--embedding-model", args.embedding_model, "--embedding-device", "cpu",
                    "--model", args.model, "--base-url", args.base_url,
                    "--context-length", args.context_length, "--variants", *args.variants]
+        if args.llm_backend != "local":
+            command += ["--llm-backend", args.llm_backend]
         for name in ("retrieval_only", "no_filter_edges"):
             if getattr(args, name):
                 command.append("--" + name.replace("_", "-"))

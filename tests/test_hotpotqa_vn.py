@@ -304,7 +304,9 @@ def test_vn_notebook_syntax_and_default_safe_phase():
                      "EXPERIMENT_PROFILE = 'ab_entity_event_v3'", "hotpotqa_vn_ab_entity_event_v3",
                      "--without-event-relations", "command += ['--repetition-penalty'",
                      "'chunks': 109", "'penalty': 1.15",
-                     "UPGRADE_CODE_FOR_RESUME = False"):
+                     "UPGRADE_CODE_FOR_RESUME = False", "LLM_BACKEND", "NEEDS_LOCAL_LLM",
+                     "scripts/check_remote_llm.py", "--llm-backend",
+                     "start_new_session=True", "SAFE TO DISCONNECT"):
         assert expected in source
     for cell in notebook["cells"]:
         if cell["cell_type"] == "code":

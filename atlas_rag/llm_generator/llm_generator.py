@@ -2,10 +2,10 @@
 
 from typing import Optional, Union, Any
 
-from tenacity import retry, stop_after_attempt, stop_after_delay, wait_fixed, wait_exponential, wait_random, RetryCallState
+from tenacity import (retry, retry_if_exception, stop_after_attempt, stop_after_delay,
+                      wait_exponential, wait_fixed, wait_random, RetryCallState)
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
-import traceback
 
 from atlas_rag.llm_generator.prompt.rag_prompt import cot_system_instruction, cot_system_instruction_kg, cot_system_instruction_no_doc, prompt_template
 from atlas_rag.llm_generator.prompt.lkg_prompt import ner_prompt, keyword_filtering_prompt, simple_ner_prompt
@@ -50,10 +50,12 @@ def print_retry(retry_state: RetryCallState):
     # Access the instance via retry_state.args[0] if method is bound
     instance = retry_state.args[0] if retry_state.args else None
     
-    # Print the error that caused the retry
+    # Do not print exception bodies: remote client exceptions may include
+    # request details. Type/status are sufficient and cannot expose API keys.
     exception = retry_state.outcome.exception()
-    stack_trace = ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__))
-    print(f"Error occurred: {type(exception).__name__}: {str(exception)}\nStack trace:\n{stack_trace}")
+    status = getattr(exception, "status_code", None)
+    status_text = f" (HTTP {status})" if status is not None else ""
+    print(f"Retryable LLM error: {type(exception).__name__}{status_text}")
 
     if instance and hasattr(instance, 'retry_count'):
         instance.retry_count += 1
@@ -61,11 +63,45 @@ def print_retry(retry_state: RetryCallState):
     else:
         print(f"Retrying {retry_state.fn.__name__}: attempt {retry_state.attempt_number}")
 
+def is_transient_llm_error(exc: BaseException) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status in {429, 502, 503, 504}:
+        return True
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    return type(exc).__name__ in {
+        "APIConnectionError", "APITimeoutError", "RateLimitError", "InternalServerError"
+    }
+
+
+def is_retryable_api_generation_error(exc: BaseException) -> bool:
+    """Retry transient transport errors and legacy output-validation failures."""
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        return status in {429, 502, 503, 504}
+    if type(exc).__name__ in {
+        "AuthenticationError", "PermissionDeniedError", "BadRequestError",
+        "NotFoundError", "UnprocessableEntityError",
+    }:
+        return False
+    if is_transient_llm_error(exc):
+        return True
+    # Preserve the existing finite retry of malformed model output/validation.
+    return True
+
+
 retry_decorator = retry(
-    stop=(stop_after_delay(120) | stop_after_attempt(5)),  # Max 2 minutes or 5 attempts
-    # wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(min=0, max=2),
+    stop=(stop_after_delay(120) | stop_after_attempt(5)),
     wait=wait_fixed(0),
     before_sleep=print_retry,
+)
+
+api_retry_decorator = retry(
+    retry=retry_if_exception(is_retryable_api_generation_error),
+    stop=(stop_after_delay(120) | stop_after_attempt(5)),  # Max 2 minutes or 5 attempts
+    wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(min=0, max=2),
+    before_sleep=print_retry,
+    reraise=True,
 )
 
 class LLMGenerator():
@@ -162,7 +198,7 @@ class LLMGenerator():
                 return "\n".join([f"{m['role']}: {m['content']}" for m in messages])
         return messages
 
-    @retry_decorator
+    @api_retry_decorator
     def _api_inference(self, message, config: Optional[GenerationConfig] = None,
                            max_new_tokens=8192,
                            temperature = 0.7,

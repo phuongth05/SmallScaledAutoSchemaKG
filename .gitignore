@@ -20,6 +20,9 @@ todo.md
 */hotpotqa_corpus_kg_input
 vllm
 .ipynb_checkpoints/
+.env
+.env.*
+!.env.example
 outputs/
 colab_outputs/
 *.log

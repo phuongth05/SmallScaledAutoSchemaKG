@@ -1,5 +1,8 @@
 # Chạy AutoSchemaKG trên HotpotQA-VN
 
+Luồng Colab/vLLM local vẫn là mặc định. Xem [REMOTE_LLM.md](REMOTE_LLM.md) để
+dùng tùy chọn RTX 4090/RunPod có API key mà không di chuyển trạng thái Drive.
+
 Nguồn: [Prepare-data-HotpotQA-VN](https://github.com/chichic21039/Prepare-data-HotpotQA-VN),
 đọc **`data/hotpotqa_vi_1k/final`**, không dùng `checkpoints/` hoặc tự áp dụng lại review.
 

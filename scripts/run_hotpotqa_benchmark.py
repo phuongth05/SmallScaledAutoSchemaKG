@@ -7,6 +7,7 @@ to resume. Changed graph/model/config/code requires a new output directory.
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.metadata
 import json
 import os
@@ -23,6 +24,15 @@ from hotpotqa_benchmark import (CachedEncoder, answer_scores, atomic_json, diges
     graph_variant, index_graph, load_bundle, make_hipporag2, make_index, retrieval_scores)
 from colab_v2_utils import (FILTER_PROTOCOL, FilterSelectionError, IncompleteGenerationError,
     filter_messages, normalize_base_url, parse_selected_ids)
+from llm_endpoint import LLMConnection, check_llm_health, resolve_llm_connection
+
+
+# This exact predecessor changed only to add transport/authentication support.
+# Accepting it preserves existing per-question checkpoints without weakening
+# compatibility for any other code/configuration revision.
+TRANSPORT_COMPATIBLE_SCRIPT_DIGESTS = {
+    "32abddf4a51a17ba6f561177f1f33eaeef504e8da78c5eb430a7b23b60f2629b",
+}
 
 
 def parse_args():
@@ -34,6 +44,8 @@ def parse_args():
     parser.add_argument("--model", default="Qwen/Qwen3.5-2B")
     parser.add_argument("--language", choices=("auto", "en", "vi"), default="auto")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
+    parser.add_argument("--llm-backend", choices=("local", "remote"), type=str.lower,
+                        default=os.environ.get("LLM_BACKEND", "local").lower())
     parser.add_argument("--model-revision", help="Optional tokenizer revision; server must serve the matching weights")
     parser.add_argument("--embedding-model", default="sentence-transformers/multi-qa-MiniLM-L6-cos-v1")
     parser.add_argument("--embedding-revision")
@@ -56,17 +68,19 @@ def parse_args():
 
 
 class LocalReader:
-    def __init__(self, args):
+    def __init__(self, args, connection: LLMConnection | None = None):
         from openai import OpenAI
         from transformers import AutoTokenizer
         self.args = args
-        args.base_url = normalize_base_url(args.base_url)
-        self.client = OpenAI(base_url=args.base_url, api_key=os.environ.get("LOCAL_LLM_API_KEY", "EMPTY"),
-                             timeout=180, max_retries=0)
-        models = self.client.models.list(timeout=10)
-        available = [m.id for m in models.data]
-        if args.model not in available:
-            raise ValueError(f"Requested {args.model}, server serves {available}")
+        connection = connection or resolve_llm_connection(
+            getattr(args, "llm_backend", "local"), args.base_url
+        )
+        if connection.backend == "local":
+            check_llm_health(connection, args.model)
+        args.base_url = connection.base_url
+        # OpenAI retries only retryable transport/status failures; 4 is finite.
+        self.client = OpenAI(base_url=connection.base_url, api_key=connection.api_key,
+                             timeout=180, max_retries=4)
         self.tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.model_revision)
 
     def token_count(self, messages):
@@ -209,6 +223,30 @@ def write_summary(output, variants, manifest, config):
     return summary
 
 
+def transport_compatible_config(existing, current):
+    """Allow only the known transport-only script upgrade for checkpoint resume."""
+    if existing == current:
+        return True
+    old_digest = existing.get("code", {}).get("run_hotpotqa_benchmark.py")
+    if old_digest not in TRANSPORT_COMPATIBLE_SCRIPT_DIGESTS:
+        return False
+    adjusted = copy.deepcopy(existing)
+    adjusted["code"]["run_hotpotqa_benchmark.py"] = current.get("code", {}).get(
+        "run_hotpotqa_benchmark.py"
+    )
+    return adjusted == current
+
+
+def benchmark_settings(args):
+    """Return experiment semantics only; transport selection is operational."""
+    settings = {
+        key: value for key, value in vars(args).items()
+        if key not in {"source", "output_dir", "base_url", "llm_backend", "inspect_only"}
+    }
+    settings["filter_protocol"] = FILTER_PROTOCOL
+    return settings
+
+
 def run(args):
     args.base_url = normalize_base_url(args.base_url)
     args.filter_max_attempts = getattr(args, "filter_max_attempts", 2)
@@ -223,6 +261,19 @@ def run(args):
         raise ValueError("Require 0 < alpha < 1 and positive passage weight")
     if len(args.variants) != len(set(args.variants)):
         raise ValueError("Duplicate variants")
+    needs_llm = not args.inspect_only and (
+        not args.retrieval_only
+        or (not args.no_filter_edges and any(variant != "dense" for variant in args.variants))
+    )
+    connection = None
+    if needs_llm and getattr(args, "llm_backend", "local") == "remote":
+        connection = resolve_llm_connection(
+            getattr(args, "llm_backend", "local"), args.base_url
+        )
+        # Must precede bundle/output/config/checkpoint work.
+        check_llm_health(connection, args.model)
+        args.base_url = connection.base_url
+        print(f"{connection.backend.capitalize()} LLM health check passed.", flush=True)
     graph, manifest, docs, passage_docs, metadata, fingerprint = load_bundle(args.source)
     requested_language = getattr(args, "language", "auto")
     dataset_language = metadata.get("language", "en")
@@ -245,8 +296,7 @@ def run(args):
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Validate resume before downloading models or calling the local server.
-    settings = {k: v for k, v in vars(args).items() if k not in {"source", "output_dir", "base_url", "inspect_only"}}
-    settings["filter_protocol"] = FILTER_PROTOCOL
+    settings = benchmark_settings(args)
     code_files = [Path(__file__), ROOT / "scripts/hotpotqa_benchmark.py",
                   ROOT / "atlas_rag/retriever/hipporag2.py", ROOT / "atlas_rag/retriever/inference_config.py",
                   ROOT / "atlas_rag/llm_generator/prompt/rag_prompt.py", ROOT / "scripts/colab_v2_utils.py"]
@@ -260,9 +310,15 @@ def run(args):
               "code": {p.name: digest(p.read_text(encoding="utf-8")) for p in code_files}, "versions": versions}
     config_id = digest(config)
     path = output / "run_config.json"
-    if path.exists() and json.loads(path.read_text(encoding="utf-8")) != config:
-        raise ValueError("This output directory belongs to another graph/config/code/dependency set; choose a NEW --output-dir")
-    atomic_json(path, config)
+    if path.exists():
+        existing_config = json.loads(path.read_text(encoding="utf-8"))
+        if not transport_compatible_config(existing_config, config):
+            raise ValueError("This output directory belongs to another graph/config/code/dependency set; choose a NEW --output-dir")
+        # Existing checkpoint records retain the original config ID.
+        config = existing_config
+        config_id = digest(existing_config)
+    else:
+        atomic_json(path, config)
     atomic_json(output / "inspection.json", inspection)
     git = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True)
     atomic_json(output / "environment.json", {"git_commit": git.stdout.strip(), "python": sys.version, "versions": versions})
@@ -270,8 +326,7 @@ def run(args):
     if all(m["complete"] for m in summary["methods"].values()):
         print("All checkpoints complete; no model calls needed.", flush=True)
         return summary
-    needs_llm = not args.retrieval_only or (not args.no_filter_edges and any(v != "dense" for v in args.variants))
-    reader = LocalReader(args) if needs_llm else None
+    reader = LocalReader(args, connection) if needs_llm else None
     encoder = CachedEncoder(args.embedding_model, output / "embedding_cache", args.batch_size,
                             args.embedding_device, args.embedding_revision)
     texts = {p: graph.nodes[p]["id"] for p in passage_docs}

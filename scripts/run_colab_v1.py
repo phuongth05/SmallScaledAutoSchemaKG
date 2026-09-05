@@ -1,14 +1,15 @@
-"""Run the small-scale AutoSchemaKG pipeline against a local OpenAI API.
+"""Run the small-scale AutoSchemaKG pipeline against an OpenAI-compatible API.
 
 The default endpoint is a local vLLM server hosting Qwen3.5-2B. The script is
-also compatible with any OpenAI-compatible local server exposing the same
-model name.
+also compatible with an authenticated remote vLLM endpoint when explicitly
+selected. Transport settings are never written to experiment provenance.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -27,7 +28,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="Qwen/Qwen3.5-2B")
     parser.add_argument("--language", choices=("en", "vi"), default="en", help="Concept-induction language; input metadata.lang selects extraction prompts")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
-    parser.add_argument("--api-key", default="EMPTY")
+    parser.add_argument("--llm-backend", choices=("local", "remote"), type=str.lower,
+                        default=os.environ.get("LLM_BACKEND", "local").lower())
+    parser.add_argument("--api-key", help="Deprecated local-only override; use an environment variable")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--filename-pattern", default="v1_smoke")
     parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "outputs" / "colab_v1")
@@ -166,7 +169,7 @@ def make_extractor(args: argparse.Namespace) -> object:
         seed=42,
         chat_template_kwargs={"enable_thinking": False},
     )
-    client = OpenAI(base_url=args.base_url, api_key=args.api_key, timeout=1800.0)
+    client = OpenAI(base_url=args.base_url, api_key=args.api_key, timeout=1800.0, max_retries=0)
     generator = LLMGenerator(
         client=client,
         model_name=args.model,
@@ -243,6 +246,18 @@ def main() -> None:
         raise ValueError("--max-extraction-chunks must be positive")
     if args.repetition_penalty <= 0:
         raise ValueError("--repetition-penalty must be positive")
+    needs_llm = args.phase in {"extract", "full"} or (
+        args.phase == "build" and not args.without_concepts
+    )
+    if needs_llm and args.llm_backend == "remote":
+        from llm_endpoint import check_llm_health, resolve_llm_connection
+
+        connection = resolve_llm_connection(args.llm_backend, args.base_url, args.api_key)
+        # This read-only check intentionally runs before output mkdir/overwrite/progress writes.
+        check_llm_health(connection, args.model)
+        args.base_url = connection.base_url
+        args.api_key = connection.api_key
+        print(f"{connection.backend.capitalize()} LLM health check passed.", flush=True)
     if args.overwrite and args.output_dir.exists():
         shutil.rmtree(args.output_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
